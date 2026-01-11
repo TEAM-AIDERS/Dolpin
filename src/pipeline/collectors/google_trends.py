@@ -1,43 +1,47 @@
 import datetime
 import uuid
+import logging
+import pandas as pd
 from pytrends.request import TrendReq
+
+logger = logging.getLogger(__name__)
 
 class GoogleTrendsCollector:
     def __init__(self, hl='ko-KR', tz=540):
         self.pytrends = TrendReq(hl=hl, tz=tz)
-
+    
     def collect(self, keyword: str, geo: str = 'KR'):
         try:
             # 1. 시간대별 관심도 수집 (최근 1시간)
             self.pytrends.build_payload([keyword], timeframe='now 1-H', geo=geo)
             df_over_time = self.pytrends.interest_over_time()
-
             if df_over_time.empty:
                 return None
+            
             # 가장 마지막 시간의 관심도 점수 추출 
             latest_row = df_over_time.iloc[-1]
             interest_score = int(latest_row[keyword])
             is_partial = bool(latest_row['is_partial'])
-
+            
             # 2. 관련 급상승 검색어 수집
             related_queries = self.pytrends.related_queries()
             rising_list = []
-            
             if keyword in related_queries and related_queries[keyword]['rising'] is not None:
                 rising_df = related_queries[keyword]['rising']
                 for _, row in rising_df.head(5).iterrows():
-                    val = row['value'] # 검색량 증가율 
+                    val = row['value']  # 검색량 증가율 
+                    formatted_value = self._format_rising_value(val)
                     rising_list.append({
                         "query": row['query'],
-                        "value": "Breakout" if str(val) == 'None' or val >= 5000 else f"+{val}%"
+                        "value": formatted_value
                     })
-
+            
             # 3. 인기 검색어 수집
             top_list = []
             if keyword in related_queries and related_queries[keyword]['top'] is not None:
                 top_df = related_queries[keyword]['top']
                 top_list = top_df.head(5)['query'].tolist()
-
+            
             # 4. 결과 조립
             result = {
                 "message_id": str(uuid.uuid4()),
@@ -56,7 +60,40 @@ class GoogleTrendsCollector:
                 }
             }
             return result
-
         except Exception as e:
-            print(f"Error collecting Google Trends for {keyword}: {e}")
+            logger.error(f"Google Trends 수집 중 오류 (keyword: {keyword}): {e}")
             return None
+    
+    def _format_rising_value(self, val) -> str:
+        """
+        급상승 검색어의 value를 안전하게 포맷팅
+        - 숫자 타입: 정수 변환 후 처리
+        - 문자열 'Breakout': 그대로 반환
+        - NaN/None: 'Breakout'으로 처리
+        """
+        # NaN 체크
+        if pd.isna(val):
+            return "Breakout"
+        
+        # 문자열 타입 체크
+        if isinstance(val, str):
+            if val.lower() == 'breakout':
+                return "Breakout"
+            try:
+                numeric_val = int(val)
+                return f"+{numeric_val}%"
+            except ValueError:
+                logger.warning(f"예상치 못한 문자열 value: {val}")
+                return "Breakout"
+        
+        # 숫자 타입 체크
+        if isinstance(val, (int, float)):
+            numeric_val = int(val)
+            if numeric_val >= 5000:
+                return "Breakout"
+            else:
+                return f"+{numeric_val}%"
+        
+        # 예상치 못한 타입
+        logger.warning(f"예상치 못한 value 타입: {type(val)}, 값: {val}")
+        return "Breakout"

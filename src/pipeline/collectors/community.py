@@ -1,10 +1,15 @@
 import uuid
 import datetime
 import os
+import logging
+from urllib.parse import quote
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 class InstizCollector:
     def __init__(self):
@@ -43,6 +48,7 @@ class InstizCollector:
             return "autologinok=1" in page_text
             
         except Exception as e:
+            logger.error(f"로그인 중 오류 발생: {e}")
             return False
     # 게시글 수집 함수 
     async def collect(self, keyword: str, max_results: int = 5):
@@ -60,7 +66,8 @@ class InstizCollector:
 
                 # 로그인 후 검색 페이지 이동 
                 await self.login(page)
-                search_url = f"{self.base_url}/name_enter?category=2&k={keyword}&stype=9"
+                encoded_keyword = quote(keyword)
+                search_url = f"{self.base_url}/name_enter?category=2&k={encoded_keyword}&stype=9"
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(4000)
                 
@@ -75,8 +82,8 @@ class InstizCollector:
                             if not href.startswith("http"):
                                 href = self.base_url + href
                             detail_urls.append(href)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"링크 추출 중 오류: {e}")
                 # 게시글 상세 수집 (각 링크마다 새 페이지 열기)
                 for url in detail_urls:
                     detail_page = None
@@ -120,7 +127,7 @@ class InstizCollector:
                         results.append(standardized_data)
 
                     except Exception as e:
-                        pass
+                        logger.error(f"게시글 수집 중 오류 (URL: {url}): {e}")
                     finally:
                         if detail_page:
                             await detail_page.close()
@@ -128,7 +135,7 @@ class InstizCollector:
                 await context.close()
 
         except Exception as e:
-            pass
+            logger.error(f"수집 중 오류 발생: {e}")
         finally:
             if browser:
                 await browser.close()
