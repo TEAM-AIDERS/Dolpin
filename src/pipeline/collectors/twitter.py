@@ -72,12 +72,3 @@ class TwitterCollector:
         except Exception as e:
             print(f"❌ Twitter 수집기 매핑 중 에러: {e}")
             return []
-
-# 테스트 코드
-if __name__ == "__main__":
-    async def test():
-        collector = TwitterCollector()
-        data = await collector.collect("NCT WISH", max_results=2)
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-
-    asyncio.run(test())
