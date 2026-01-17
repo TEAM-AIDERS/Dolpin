@@ -28,7 +28,17 @@ class TwitterCollector:
                 "TWITTER_BEARER_TOKEN": os.getenv("TWITTER_BEARER_TOKEN"),
             }
         )
-    
+    def fetch(self, keyword: str) -> list:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(self.collect(keyword))
+        except Exception as e:
+            logger.error(f"Twitter fetch error: {e}")
+            return []
+        finally:
+            loop.close()
+        
     async def collect(self, keyword: str, max_results: int = 10):
         results = []
         try:
@@ -50,25 +60,20 @@ class TwitterCollector:
                     tweets = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
                     
                     for tweet in tweets:
-                        # 원본 데이터를 표준 스키마 필드에 연결
-                        standardized_data = {
-                            "message_id": str(uuid.uuid4()),
-                            "type": "post",
-                            "source": "twitter",
-                            "collected_at": datetime.datetime.utcnow().isoformat() + "Z",
-                            "keyword": keyword,
-                            "content_data": {
-                                "text": tweet.get('text', ''),
-                                "author_id": str(tweet.get('author_id', 'unknown')),
-                                "metrics": {
-                                    "likes": tweet.get('public_metrics', {}).get('like_count', 0),
-                                    "retweets": tweet.get('public_metrics', {}).get('retweet_count', 0)
-                                }
-                            }
-                        }
-                        results.append(standardized_data)
-                    
+                        results.append({
+                            "text": tweet.get('text', ''),      
+                            "author_id": str(tweet.get('author_id', 'unknown')),
+                            "metrics": self._format_metrics(tweet.get('public_metrics', {}))
+                        })
                     return results
         except Exception as e:
             logger.error(f"Twitter 수집 중 오류 (keyword: {keyword}): {e}")
             return []
+        
+    # 메트릭 세개만 추출 
+    def _format_metrics(self, raw_metrics: dict) -> dict:
+        return {
+            "likes": raw_metrics.get('like_count', 0),
+            "retweets": raw_metrics.get('retweet_count', 0),
+            "replies": raw_metrics.get('reply_count', 0)
+        }
