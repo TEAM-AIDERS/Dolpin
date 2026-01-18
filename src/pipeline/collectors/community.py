@@ -5,6 +5,7 @@ import logging
 from urllib.parse import quote
 from playwright.async_api import async_playwright
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 
@@ -17,6 +18,14 @@ class InstizCollector:
         self.base_url = "https://www.instiz.net"
         self.user_id = os.getenv("INSTIZ_ID")
         self.user_pw = os.getenv("INSTIZ_PW")
+        
+    def fetch(self, keyword: str) -> list:
+        try:
+            return asyncio.run(self.collect(keyword))
+        except Exception as e:
+            logger.error(f"Instiz fetch error: {e}")
+            return []
+        
     # 로그인 자동화 함수 
     async def login(self, page):
         try:
@@ -112,19 +121,22 @@ class InstizCollector:
                                 return elem ? parseInt(elem.textContent) || 0 : 0;
                             }
                         """)
-
-                        raw_likes = await detail_page.evaluate("""
-                            () => {
-                                const elem = document.querySelector('.votenow98473432');
-                                return elem ? parseInt(elem.textContent) || 0 : 0;
-                            }
-                        """)
-
-                        standardized_data = self._map_to_standard_schema(
-                            raw_title, raw_content, raw_views, raw_likes, "unknown", url, keyword
-                        )
                         
-                        results.append(standardized_data)
+                        try:
+                            v_str = str(raw_views).replace(',', '').strip()
+                            views_count = int(v_str) if v_str.isdigit() else 0
+                        except:
+                            views_count = 0
+
+                        results.append({
+                            "content": f"{raw_title.strip()}\n{raw_content.strip()}",
+                            "writer": "unknown", 
+                            "source": self.source,
+                            "metrics": {
+                                "views": views_count
+                            }
+                        })
+                                    
 
                     except Exception as e:
                         logger.error(f"게시글 수집 중 오류 (URL: {url}): {e}")
@@ -140,21 +152,4 @@ class InstizCollector:
             if browser:
                 await browser.close()
 
-        return results
-    # 표준 스키마로 변환 
-    def _map_to_standard_schema(self, title: str, content: str, views: int, likes: int, author_id: str, url: str, keyword: str) -> dict:
-        return {
-            "message_id": str(uuid.uuid4()),
-            "type": "post",
-            "source": "community",
-            "collected_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-            "keyword": keyword,
-            "content_data": {
-                "text": f"{title}\n\n{content.strip()}"[:2000] if content else title,
-                "author_id": author_id,
-                "metrics": {
-                    "views": views,
-                    "likes": likes
-                }
-            }
-        }
+        
