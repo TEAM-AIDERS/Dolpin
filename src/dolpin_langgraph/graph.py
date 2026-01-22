@@ -10,6 +10,7 @@ from .state import AnalysisState
 from .nodes import (
     spike_analyzer_node,
     router1_node,
+    lexicon_lookup_node,
     sentiment_node,
     router2_node,
     causality_node,
@@ -41,6 +42,7 @@ def create_workflow() -> StateGraph:
     # ============================================================
     workflow.add_node("spike_analyzer", spike_analyzer_node)
     workflow.add_node("router1", router1_node)
+    workflow.add_node("lexicon_lookup", lexicon_lookup_node)
     workflow.add_node("sentiment", sentiment_node)
     workflow.add_node("router2", router2_node)
     workflow.add_node("causality", causality_node)
@@ -60,15 +62,18 @@ def create_workflow() -> StateGraph:
     # SpikeAnalyzer → Router1
     workflow.add_edge("spike_analyzer", "router1")
     
-    # Router1 → (조건부) Sentiment or END
+    # Router1 → (조건부) LexiconLookup or END
     workflow.add_conditional_edges(
         "router1",
         should_continue_after_router1,
         {
-            "sentiment": "sentiment",
+            "sentiment": "lexicon_lookup",
             "end": END
         }
     )
+    
+    # LexiconLookup → Sentiment
+    workflow.add_edge("lexicon_lookup", "sentiment")
     
     # Sentiment → Router2
     workflow.add_edge("sentiment", "router2")

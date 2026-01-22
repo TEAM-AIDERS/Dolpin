@@ -349,6 +349,7 @@ class AnalysisState(TypedDict):
     
     # 각 에이전트/노드 결과
     spike_analysis: Optional[SpikeAnalysisResult]
+    lexicon_matches: Optional[Dict[str, LexiconMatch]]
     sentiment_result: Optional[SentimentAnalysisResult]
     causality_result: Optional[CausalityAnalysisResult]
     legal_risk: Optional[LegalRiskResult]

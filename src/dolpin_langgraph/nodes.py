@@ -177,6 +177,72 @@ def router1_node(state: AnalysisState) -> AnalysisState:
 
 
 # ============================================================
+# 노드: LexiconLookup
+# ============================================================
+
+def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
+    """
+    렉시콘 매칭 노드
+    
+    spike_event의 메시지들을 렉시콘과 매칭하여
+    state["lexicon_matches"]에 결과 저장
+    
+    TODO: lexicon_server.lexicon_lookup_tool() 연계 (3주차)
+    """
+    try:
+        spike_event = state.get("spike_event")
+        
+        if not spike_event or "messages" not in spike_event:
+            # 메시지가 없으면 빈 결과 반환
+            state["lexicon_matches"] = None
+            logger.info("LexiconLookup: 분석할 메시지 없음")
+            return state
+        
+        # ============================================================
+        # Stub: 더미 데이터 (개발 초기용)
+        # ============================================================
+        lexicon_matches_result = {
+            "fandom_slang": {"count": 5, "type": "fandom_slang"},
+            "meme_positive": {"count": 3, "type": "meme_positive"},
+            "context_marker": {"count": 2, "type": "context_marker"}
+        }
+        
+        # State 업데이트
+        state["lexicon_matches"] = lexicon_matches_result if lexicon_matches_result else None
+        
+        # Node Insight 생성
+        if lexicon_matches_result:
+            top_types = sorted(
+                lexicon_matches_result.items(),
+                key=lambda x: x[1]["count"],
+                reverse=True
+            )[:3]
+            
+            types_str = ", ".join([f"{t[0]}({t[1]['count']})" for t in top_types])
+            insight = f"렉시콘 매칭: {types_str}"
+        else:
+            insight = "렉시콘 매칭 결과 없음"
+        
+        _update_node_insight(state, "LexiconLookup", insight)
+        
+        logger.info(f"LexiconLookup 완료: {len(lexicon_matches_result)} 타입 매칭")
+        
+    except Exception as e:
+        _add_error_log(
+            state,
+            stage="lexicon_lookup",
+            error_type="exception",
+            message=str(e),
+            details={"keyword": state.get("spike_event", {}).get("keyword")}
+        )
+        # 실패 시 None 처리 (워크플로우 계속 진행)
+        state["lexicon_matches"] = None
+        logger.warning(f"LexiconLookup 실패: {str(e)}")
+    
+    return state
+
+
+# ============================================================
 # 노드: SentimentAgent
 # ============================================================
 
