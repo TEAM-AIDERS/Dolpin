@@ -92,6 +92,7 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
             "actionability_score": 0.7,
             "data_completeness": "confirmed",
             "partial_data_warning": None,
+            "reason": "급등 징후 분석 완료: 3.5배 급등율, 긍정적 바이럴, 높은 신뢰도(0.85)",
             "viral_indicators": {
                 "is_trending": True,
                 "has_breakout": True,
@@ -111,6 +112,9 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
             + (f", {result['partial_data_warning']}" if result['partial_data_warning'] else "")
         )
         _update_node_insight(state, "SpikeAnalyzer", insight)
+        
+        # spike 판단 근거를 node_insights에 저장
+        state["node_insights"]["spike"] = result.get("reason", "급등 징후 분석 완료")
         
         logger.info(f"SpikeAnalyzer 완료: is_significant={result['is_significant']}")
         
@@ -143,6 +147,8 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
                 "international_reach": 0.0
             }
         }
+        # 에러 발생 시 spike 판단 근거 저장
+        state["node_insights"]["spike"] = "급등 분석 중 오류가 발생했습니다."
     
     return state
 
