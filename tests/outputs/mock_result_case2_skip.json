@@ -1,0 +1,81 @@
+{
+  "spike_event": {
+    "keyword": "뉴진스",
+    "spike_rate": 1.1,
+    "baseline": 100,
+    "current_volume": 350,
+    "detected_at": "2026-01-10T10:00:00Z",
+    "time_window": "1h",
+    "messages": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "source_message_id": "187654321",
+        "text": "뉴진스 컴백 대박!",
+        "timestamp": "2026-01-10T10:00:00Z",
+        "source": "twitter",
+        "author_id": "user_123",
+        "metrics": {
+          "likes": 100,
+          "retweets": 50
+        },
+        "is_anonymized": false,
+        "detected_language": "ko"
+      },
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440002",
+        "source_message_id": "187654322",
+        "text": "뉴진스 최고야 ㅠㅠ",
+        "timestamp": "2026-01-10T10:05:00Z",
+        "source": "twitter",
+        "author_id": "user_456",
+        "metrics": {
+          "likes": 200,
+          "retweets": 80
+        },
+        "is_anonymized": false,
+        "detected_language": "ko"
+      }
+    ],
+    "raw_kafka_message_ids": [
+      "550e8400-e29b-41d4-a716-446655440000"
+    ]
+  },
+  "trace_id": "test-trace-002",
+  "workflow_start_time": "2026-01-18T10:07:13.937122Z",
+  "route1_decision": "skip",
+  "route2_decision": null,
+  "route3_decision": null,
+  "positive_viral_detected": null,
+  "spike_analysis": {
+    "is_significant": false,
+    "spike_rate": 1.1,
+    "spike_type": "organic",
+    "spike_nature": "neutral",
+    "peak_timestamp": "2026-01-10T10:30:00Z",
+    "duration_minutes": 30,
+    "confidence": 0.9,
+    "actionability_score": 0.1,
+    "data_completeness": "confirmed",
+    "partial_data_warning": null,
+    "viral_indicators": {
+      "is_trending": false,
+      "has_breakout": false,
+      "max_rise_rate": "+10%",
+      "breakout_queries": [],
+      "cross_platform": [
+        "twitter"
+      ],
+      "international_reach": 0.0
+    }
+  },
+  "sentiment_result": null,
+  "causality_result": null,
+  "legal_risk": null,
+  "amplification_summary": null,
+  "playbook": null,
+  "node_insights": {},
+  "executive_brief": null,
+  "error_logs": [],
+  "skipped": true,
+  "skip_reason": "not_significant"
+}
