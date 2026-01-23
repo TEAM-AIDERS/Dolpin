@@ -149,6 +149,6 @@ if __name__ == "__main__":
     )
     
     # 3. 데이터 업로드 실행
-    indexer.upsert_knowledge_base("final.json")
+    indexer.upsert_knowledge_base("legalsource.json")
     
     print("모든 법률 지식 베이스가 Pinecone에 성공적으로 적재되었습니다.")
