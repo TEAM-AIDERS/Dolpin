@@ -1,5 +1,10 @@
 .env
 .venv/
 node_modules
-.kiro/
-.csv
+*.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
