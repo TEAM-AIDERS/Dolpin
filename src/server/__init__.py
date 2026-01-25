@@ -11,13 +11,16 @@ Created: 2026-01-25
   - vector_server.py: 벡터 검색 서버
 """
 
-from .lexicon_server import LexiconServer, create_mcp_tools
-from .mcp_client import MCPClient
+from .lexicon_server import LexiconServer, LexiconEntry, LexiconMatch, AnalysisContext
+from .mcp_client import MCPClient, get_mcp_client
 
 __all__ = [
     "LexiconServer",
-    "create_mcp_tools",
+    "LexiconEntry",
+    "LexiconMatch",
+    "AnalysisContext",
     "MCPClient",
+    "get_mcp_client",
 ]
 
 __version__ = "2.0"
