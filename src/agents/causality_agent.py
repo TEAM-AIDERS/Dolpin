@@ -1,6 +1,7 @@
 from typing import List, Dict, Set
 from collections import defaultdict
 
+
 class CausalityAgent:
     def __init__(self, items: List[Dict]):
         self.items = items
@@ -61,3 +62,17 @@ class CausalityAgent:
                     })
         return chains
 
+
+def run_causality_agent(state: dict) -> dict:
+    issue_id = state.get("issue_id")
+    items = state.get("items", [])
+
+    agent = CausalityAgent(items)
+    chains = agent.build_chains()
+
+    return {
+        "issue_id": issue_id,
+        "causality": {
+            "chains": chains
+        }
+    }
