@@ -60,12 +60,11 @@ class SpikeAnalyzerAgent:
             "acceleration": round(float(accel), 3),
             "eps_1m": round(float(eps_1m), 4)
         }
-    async def _calculate_keyword_risk(self, messages: List[Dict]) -> float:
+    # MCP 구현 전까지 임시로 일반 함수(def)로 유지
+    def _calculate_keyword_risk(self, messages: List[Dict]) -> float:
        if not messages: return 0.0
-       # 분석할 텍스트 추출 
-       combined_text = " ".join([m.get('text', '') for m in messages])
        
-       # Custom Lexicon MCP 호출 (MCP 구현 완료 후 수정 예정)
+       # TODO: Custom Lexicon MCP 호출 로직 구현 예정
     
     # 신뢰 가능한 급증인지 
     def _calculate_confidence(self, spike_rate: float, data_completeness: str) -> float:
@@ -108,16 +107,16 @@ class SpikeAnalyzerAgent:
             }
             series_list.append(series)
             
-            try:
-                # 메트릭 전송
-                self.client.create_time_series(
-                    request={
-                        "name": self.project_path,
-                        "time_series": series_list,
-                    }
-                )
-            except Exception as e:
-                logger.error(f"❌ GCP Metric Export Failed: {e}")
+        try:
+            # 메트릭 전송
+            self.client.create_time_series(
+                request={
+                    "name": self.project_path,
+                    "time_series": series_list,
+                }
+            )
+        except Exception as e:
+            logger.error(f"❌ GCP Metric Export Failed: {e}")
     
     # 메인 실행 함수 
     def analyze(self, event: SpikeEvent) -> SpikeAnalysisResult:
