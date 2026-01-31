@@ -631,109 +631,28 @@ def amplification_node(state: AnalysisState) -> AnalysisState:
 # ============================================================
 
 def playbook_node(state: AnalysisState) -> AnalysisState:
-    """
-    대응 전략 생성 노드
-    
-    TODO: playbook.generate_strategy() 완성 후 교체
-    """
+    """대응 전략 생성 노드"""
     try:
-        # ============================================================
-        # TODO: 실제 에이전트 연결 시 아래 주석 해제
-        # ============================================================
-        # from ..agents import playbook
-        # result = playbook.generate_strategy(state)
+        from src.agents.playbook_agent import generate_strategy
         
-        # ============================================================
-        # Stub: 더미 데이터 (개발 초기용)
-        # ============================================================
-        route3 = state.get("route3_decision")
+        playbook_result = generate_strategy(state, use_llm_enhancement=True)
+        state["playbook"] = playbook_result
         
-        # 경로별 분기
-        if route3 == "amplification":
-            # 긍정 바이럴 경로
-            result = {
-                "situation_type": "opportunity",
-                "priority": "high",
-                "recommended_actions": [
-                    {
-                        "action": "amplify_viral",
-                        "urgency": "high",
-                        "description": "긍정 바이럴 확산 지원",
-                        "target_posts": [
-                            {
-                                "id": state["spike_event"]["messages"][0]["id"],
-                                "source": state["spike_event"]["messages"][0]["source"],
-                                "source_message_id": state["spike_event"]["messages"][0]["source_message_id"],
-                                "url": f"https://twitter.com/status/{state['spike_event']['messages'][0]['source_message_id']}"
-                            }
-                        ]
-                    }
-                ],
-                "key_risks": [],
-                "key_opportunities": ["해외 팬덤 확장", "브랜드 긍정 이미지"],
-                "target_channels": ["official_twitter", "youtube"]
-            }
-        elif route3 == "legal":
-            # 법적 리스크 경로
-            legal_risk = state.get("legal_risk", {})
-            if legal_risk.get("clearance_status") == "high_risk":
-                result = {
-                    "situation_type": "crisis",
-                    "priority": "urgent",
-                    "recommended_actions": [
-                        {
-                            "action": "legal_response",
-                            "urgency": "immediate",
-                            "description": "법적 대응 검토",
-                            "legal_basis": "명예훼손 관련 법률"
-                        }
-                    ],
-                    "key_risks": ["법적 분쟁", "명예 훼손"],
-                    "key_opportunities": [],
-                    "target_channels": ["press_release", "official_twitter"]
-                }
-            else:
-                result = {
-                    "situation_type": "monitoring",
-                    "priority": "medium",
-                    "recommended_actions": [
-                        {
-                            "action": "monitor_only",
-                            "urgency": "medium",
-                            "description": "상황 모니터링"
-                        }
-                    ],
-                    "key_risks": [],
-                    "key_opportunities": [],
-                    "target_channels": ["official_twitter"]
-                }
-        else:
-            # sentiment_only 경로
-            result = {
-                "situation_type": "monitoring",
-                "priority": "low",
-                "recommended_actions": [
-                    {
-                        "action": "monitor_only",
-                        "urgency": "low",
-                        "description": "긍정 팬 반응 확인"
-                    }
-                ],
-                "key_risks": [],
-                "key_opportunities": ["팬 소통 기회"],
-                "target_channels": ["fancafe"]
-            }
+        # Insight 생성
+        situation_type = playbook_result.get("situation_type", "unknown")
+        priority = playbook_result.get("priority", "unknown")
+        action_count = len(playbook_result.get("recommended_actions", []))
         
-        # State 업데이트
-        state["playbook"] = result
+        insight = f"{situation_type} 전략, {priority} 우선순위, {action_count}개 액션"
+        _update_node_insight(state, "Playbook", insight)
         
-        logger.info(f"Playbook 완료: situation={result['situation_type']}, priority={result['priority']}")
+        logger.info(f"Playbook 완료: {situation_type}, {action_count} 액션")
         
     except Exception as e:
         _add_error_log(state, "playbook", "exception", str(e))
         state["playbook"] = None
     
-    return state
+    return state 
 
 
 # ============================================================
