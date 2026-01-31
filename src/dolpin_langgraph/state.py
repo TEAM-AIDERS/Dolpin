@@ -113,12 +113,11 @@ class SpikeAnalysisResult(TypedDict):
 # ============================================================
 
 class SentimentDistribution(TypedDict):
-    """감정 분포"""
+    """감정 분포 - SentimentAgent에서 반환하는 6개 라벨"""
     support: float
     disappointment: float
     boycott: float
-    meme_positive: float
-    meme_negative: float
+    meme: float
     fanwar: float
     neutral: float
 

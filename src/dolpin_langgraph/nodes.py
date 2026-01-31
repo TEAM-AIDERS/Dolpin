@@ -21,8 +21,11 @@ from .edges import (
     route_after_causality
 )
 
-# 추후 에이전트 연결 시 import (현재는 주석 처리)
-# from ..agents import spike_analyzer, sentiment, causality, legal_rag, amplification, playbook
+# 에이전트 연결
+from src.agents.sentiment_agent import build_agent as build_sentiment_agent
+
+# 추후 에이전트 연결 시 import
+# from ..agents import spike_analyzer, causality, legal_rag, amplification, playbook
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +212,7 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
         # ============================================================
         lexicon_matches_result = {
             "fandom_slang": {"count": 5, "type": "fandom_slang"},
-            "meme_positive": {"count": 3, "type": "meme_positive"},
+            "meme": {"count": 3, "type": "meme"},
             "context_marker": {"count": 2, "type": "context_marker"}
         }
         
@@ -256,64 +259,73 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
     """
     감정 분석 노드
     
-    TODO: sentiment.analyze() 완성 후 교체
+    SentimentAgent를 사용하여 spike_event의 메시지들을 분석하고
+    sentiment_result를 생성합니다.
     """
     try:
-        # ============================================================
-        # TODO: 실제 에이전트 연결 시 아래 주석 해제
-        # ============================================================
-        # from ..agents import sentiment
-        # messages = state["spike_event"]["messages"]
-        # result = sentiment.analyze(messages)
+        spike_event = state.get("spike_event")
         
-        # ============================================================
-        # Stub: 더미 데이터 (개발 초기용)
-        # ============================================================
-        result = {
-            "sentiment_distribution": {
-                "support": 0.6,
-                "disappointment": 0.2,
-                "boycott": 0.1,
-                "meme_positive": 0.05,
-                "meme_negative": 0.03,
-                "fanwar": 0.01,
-                "neutral": 0.01
-            },
-            "dominant_sentiment": "support",
-            "secondary_sentiment": "disappointment",
-            "has_mixed_sentiment": True,
-            "sentiment_shift": "stable",
-            "representative_messages": {
-                "support": ["뉴진스 최고!", "컴백 대박"],
-                "disappointment": ["아쉽다", "기대했는데"]
-            },
-            "meme_keywords": None,
-            "fanwar_targets": None,
-            "lexicon_matches": {
-                "ㅇㅈ": {"count": 5, "type": "agreement_slang"},
-                "레전드": {"count": 3, "type": "meme_positive"}
-            },
-            "analyzed_count": 150,
-            "confidence": 0.85
+        if not spike_event or "messages" not in spike_event:
+            logger.warning("No messages in spike_event for sentiment analysis")
+            state["sentiment_result"] = None
+            return state
+        
+        # 메시지 전처리 (리스트를 하나의 텍스트로 결합)
+        messages = spike_event.get("messages", [])
+        if isinstance(messages, list):
+            combined_text = " ".join(str(m) for m in messages)
+        else:
+            combined_text = str(messages)
+        
+        # SentimentAgent 초기화 (캐싱 권장: Singleton 나중에 적용)
+        # TODO: 모델 경로 환경 변수에서 읽기
+        MODEL_PATH = state.get("sentiment_model_path", "models/sentiment_model")
+        LEXICON_PATH = state.get("lexicon_path", "custom_lexicon.csv")
+        DEVICE = state.get("device", "cpu")
+        
+        try:
+            agent = build_sentiment_agent(MODEL_PATH, LEXICON_PATH, DEVICE)
+        except Exception as e:
+            logger.error(f"SentimentAgent 초기화 실패: {e}")
+            # 모델 없으면 None 처리 (graceful fallback)
+            state["sentiment_result"] = None
+            return state
+        
+        # 감정 분석 실행
+        analyzed_count = len(messages) if isinstance(messages, list) else 1
+        result, route_meta = agent.analyze(combined_text, analyzed_count=analyzed_count)
+        
+        # state에 필요한 필드 추가
+        result["analyzed_count"] = analyzed_count
+        result["confidence"] = result.get("confidence", 0.5)
+        result["sentiment_shift"] = "stable"  # TODO: 이전 상태와 비교하여 계산
+        result["representative_messages"] = {
+            result.get("dominant_sentiment", "support"): messages[:3] if isinstance(messages, list) else [combined_text[:50]]
         }
         
         # State 업데이트
         state["sentiment_result"] = result
         
         # Insight 생성
-        dominant = result["dominant_sentiment"]
-        score = result["sentiment_distribution"][dominant] * 100
-        insight = (
-            f"{dominant} {score:.0f}%, "
-            f"대표 메시지: {result['representative_messages'][dominant][0][:30]}..."
-        )
+        dominant = result.get("dominant_sentiment", "unknown")
+        confidence = result.get("confidence", 0)
+        insight = f"{dominant} {confidence*100:.0f}% (신뢰도), {analyzed_count}건 분석"
         _update_node_insight(state, "Sentiment", insight)
         
-        logger.info(f"Sentiment 완료: dominant={dominant}, confidence={result['confidence']}")
+        logger.info(
+            f"Sentiment 완료: dominant={dominant}, confidence={confidence:.2f}, "
+            f"route={route_meta.get('route', 'unknown')}"
+        )
         
     except Exception as e:
-        _add_error_log(state, "sentiment", "exception", str(e))
-        # 실패 시 null 처리
+        _add_error_log(
+            state,
+            stage="sentiment",
+            error_type="exception",
+            message=str(e),
+            details={"spike_event_keyword": state.get("spike_event", {}).get("keyword")}
+        )
+        # 실패 시 None 처리
         state["sentiment_result"] = None
     
     return state
