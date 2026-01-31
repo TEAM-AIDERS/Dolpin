@@ -202,39 +202,57 @@ class SentimentAgent:
             sraw = str(row.get("sentiment_label", ""))
             raw_type = str(row.get("type", ""))
 
-            TYPE_TO_TRIGGER = {
+            # type → 6개 감정 라벨 직접 매핑 (sentiment_label 대신)
+            # sentiment_label은 의미적 역할일 뿐, 6개 감정 분류와는 다른 차원
+            TYPE_TO_SENTIMENT = {
+                # 보이콧 (감정: boycott)
                 "boycott_action": "boycott",
+                # 팬웨어 (감정: fanwar)
                 "fanwar_action": "fanwar",
-                "context_marker": "meme",
+                "fanwar_target": "fanwar",
+                # 밈 (감정: meme)
+                "meme_positive": "meme",
+                "meme_negative": "meme",
+                "meme_slang": "meme",
+                # 중립/컨텍스트 (감정: neutral)
+                "context_marker": "neutral",
+                "fandom_slang": "neutral",
+                "irony_cue": "neutral",          # irony는 추후 별도 처리
+                "search_evasion": "neutral",     # reference는 중립
+                # 지지 (감정: positive)
+                "support_action": "positive",
             }
 
             if not term:
                 continue
 
             if term in text or (norm and norm in text):
-                mapped_sent = self.sentiment_map.get(sraw, None)
-                mapped_trig = TYPE_TO_TRIGGER.get(raw_type)
+                # type으로 직접 감정 매핑 (sentiment_label 무시)
+                mapped_sent = TYPE_TO_SENTIMENT.get(raw_type, None)
 
                 if mapped_sent is not None and mapped_sent in LABEL_SET:
                     sentiment_counts[mapped_sent] += 1
-
-                if mapped_trig:
-                    trigger_counts[mapped_trig] += 1
 
                 matches.append(
                     {
                         "term": term,
                         "normalized_form": norm,
-                        "sentiment_label": sraw,
-                        "mapped_sentiment": mapped_sent,
-                        "trigger_type": raw_type,
-                        "mapped_trigger": mapped_trig,
-                        "type": row.get("type", None),
+                        "sentiment_label": sraw,                    # 참고용만
+                        "mapped_sentiment": mapped_sent,            # type 기반
+                        "type": raw_type,                           # 원본 type
                         "polarity": row.get("polarity", None),
                         "intensity": row.get("intensity", None),
                         "risk_flag": row.get("risk_flag", None),
                     }
                 )
+        
+        # trigger_counts 계산 (matches에서 감정별로 집계)
+        # router_second_stage에서 사용하는 boycott/fanwar/meme 신호
+        trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
+        for match in matches:
+            sent = match.get("mapped_sentiment")
+            if sent in trigger_counts:
+                trigger_counts[sent] += 1
 
         return matches, sentiment_counts, trigger_counts
 
