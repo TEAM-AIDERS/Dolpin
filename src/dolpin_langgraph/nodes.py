@@ -196,8 +196,10 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
     spike_event의 메시지들을 렉시콘과 매칭하여
     state["lexicon_matches"]에 결과 저장
     
-    TODO: lexicon_server.lexicon_lookup_tool() 연계 (3주차)
+    MCPClient Singleton을 통해 CSV 렉시콘 분석 수행
     """
+    from src.server.mcp_client import MCPClient
+    
     try:
         spike_event = state.get("spike_event")
         
@@ -208,13 +210,35 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
             return state
         
         # ============================================================
-        # Stub: 더미 데이터 (개발 초기용)
+        # MCPClient를 통한 실제 렉시콘 분석
         # ============================================================
-        lexicon_matches_result = {
-            "fandom_slang": {"count": 5, "type": "fandom_slang"},
-            "meme": {"count": 3, "type": "meme"},
-            "context_marker": {"count": 2, "type": "context_marker"}
-        }
+        mcp = MCPClient("custom_lexicon.csv")
+        
+        # 메시지들을 순회하며 렉시콘 매칭
+        lexicon_matches_result = {}
+        messages = spike_event.get("messages", [])
+        
+        for msg in messages:
+            text = msg.get("text", "")
+            if not text:
+                continue
+            
+            # MCPClient.lexicon_analyze()로 매칭 항목 추출
+            matches, risks = mcp.lexicon_analyze(text)
+            
+            # type별로 count 집계
+            for match in matches:
+                type_name = match.get("type", "unknown")
+                if type_name not in lexicon_matches_result:
+                    lexicon_matches_result[type_name] = {
+                        "count": 0,
+                        "type": type_name,
+                        "terms": []
+                    }
+                lexicon_matches_result[type_name]["count"] += 1
+                # 매칭된 실제 항목도 기록
+                if "term" in match and match["term"] not in lexicon_matches_result[type_name]["terms"]:
+                    lexicon_matches_result[type_name]["terms"].append(match["term"])
         
         # State 업데이트
         state["lexicon_matches"] = lexicon_matches_result if lexicon_matches_result else None
