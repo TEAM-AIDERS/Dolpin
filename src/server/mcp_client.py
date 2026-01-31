@@ -9,7 +9,12 @@ MCP Client - 모든 MCP 서버 호출을 관리하는 단일 진입점
 구조:
 graph.py → nodes.py → mcp_client.py → 각 MCP 서버
 
-버전: v1.0 (260125)
+Singleton 패턴:
+- 같은 프로세스 내에서는 MCPClient 인스턴스 1개만 생성
+- CSV 로딩은 1번만 수행 (이후 캐시 사용)
+- 프로세스 종료 시 새로 생성
+
+버전: v1.1 (260131) - Singleton 패턴 적용
 """
 
 import logging
@@ -21,25 +26,69 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# MCP Client - 단일 진입점
+# MCP Client - Singleton 패턴
 # ============================================================
 
 class MCPClient:
-    """모든 MCP 서버 호출을 관리하는 클라이언트"""
+    """모든 MCP 서버 호출을 관리하는 클라이언트 (Singleton)"""
+    
+    _instance = None
+    _initialized = False
+    _lexicon_server = None
+    _lexicon_csv_path = None
+    
+    def __new__(cls, lexicon_csv_path: str = "custom_lexicon.csv"):
+        """
+        Singleton 인스턴스 반환
+        
+        같은 프로세스 내에서는 항상 같은 인스턴스를 반환합니다.
+        """
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._lexicon_csv_path = lexicon_csv_path
+        return cls._instance
     
     def __init__(self, lexicon_csv_path: str = "custom_lexicon.csv"):
         """
-        MCP 서버들 초기화
+        MCP 서버들 초기화 (첫 호출에서만 실제 실행)
         
         Args:
             lexicon_csv_path: Lexicon CSV 경로
         """
-        # Custom Lexicon MCP 초기화
-        self.lexicon_server = LexiconServer(lexicon_csv_path)
-        logger.info(f"MCPClient initialized with {lexicon_csv_path}")
+        # 이미 초기화되었으면 스킵
+        if MCPClient._initialized:
+            return
+        
+        # Custom Lexicon MCP 초기화 (한 번만)
+        MCPClient._lexicon_server = LexiconServer(lexicon_csv_path)
+        logger.info(f"MCPClient Singleton initialized with {lexicon_csv_path}")
+        logger.info("(이후 호출에서는 캐시된 인스턴스 사용)")
         
         # Legal MCP 초기화 (향후 구현)
         self.legal_server = None  # self.LegalServer() 추가 예정
+        
+        MCPClient._initialized = True
+    
+    @property
+    def lexicon_server(self) -> LexiconServer:
+        """캐시된 LexiconServer 인스턴스 반환"""
+        if MCPClient._lexicon_server is None:
+            # 초기화되지 않았으면 자동 초기화
+            self.__init__()
+        return MCPClient._lexicon_server
+    
+    @classmethod
+    def reset(cls):
+        """
+        테스트용: Singleton 리셋
+        
+        새로운 인스턴스를 강제로 생성하려면 호출합니다.
+        """
+        cls._instance = None
+        cls._initialized = False
+        cls._lexicon_server = None
+        cls._lexicon_csv_path = None
+        logger.info("MCPClient Singleton reset")
     
     # ========== Custom Lexicon MCP 도구 ==========
     

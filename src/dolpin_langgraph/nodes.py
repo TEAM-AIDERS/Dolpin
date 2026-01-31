@@ -277,8 +277,8 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
         else:
             combined_text = str(messages)
         
-        # SentimentAgent 초기화 (캐싱 권장: Singleton 나중에 적용)
-        # TODO: 모델 경로 환경 변수에서 읽기
+        # SentimentAgent 초기화 (Singleton으로 캐싱됨)
+        # 첫 호출: 모델 로드, 이후 호출: 캐시 사용
         MODEL_PATH = state.get("sentiment_model_path", "models/sentiment_model")
         LEXICON_PATH = state.get("lexicon_path", "custom_lexicon.csv")
         DEVICE = state.get("device", "cpu")

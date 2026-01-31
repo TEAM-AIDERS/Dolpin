@@ -96,58 +96,70 @@ class LexiconServer:
         self._compile_term_regex()
     
     def _validate_csv(self):
-        """CSV 데이터 검증 및 필터링"""
-        required_columns = [
-            'term', 'normalized_form', 'type', 'sentiment_label',
-            'trigger_type', 'action_strength', 'fandom_scope',
-            'target_entity', 'polarity', 'intensity', 'risk_flag',
-            'example_text', 'usage_mode', 'notes', 'created_at', 'updated_at'
-        ]
+        """CSV 데이터 검증 및 필터링 (Flexible 모드)"""
+        # 필수 컬럼: term과 sentiment_label만 필수
+        required_columns = ['term', 'sentiment_label']
         
-        # 필수 컬럼 확인
         missing = set(required_columns) - set(self.df.columns)
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
         
-        # 유효값 정의
-        valid_types = {"boycott_action", "context_marker", "fandom_slang"}
-        valid_polarities = {"positive", "negative", "neutral"}
-        valid_intensities = {"high", "mid", "low"}
-        valid_risks = {"alert", "watch", "none"}
+        # 1. 빈 term 제거 (유일한 엄격 체크)
+        before_count = len(self.df)
+        self.df = self.df[self.df['term'].notna() & (self.df['term'] != '')]
+        removed_empty = before_count - len(self.df)
+        if removed_empty > 0:
+            logger.info(f"Removed {removed_empty} rows with empty term")
         
-        invalid_rows = []
+        # 2. 선택적 필드 정규화 (기본값으로 채우기)
+        defaults = {
+            'type': 'unknown',
+            'polarity': 'neutral',
+            'intensity': 'low',
+            'risk_flag': 'none',
+            'trigger_type': 'context',
+            'action_strength': 'none',
+            'fandom_scope': 'global',
+            'target_entity': 'unknown',
+            'normalized_form': 'term',
+            'example_text': '',
+            'usage_mode': 'literal',
+            'notes': '',
+            'created_at': '',
+            'updated_at': ''
+        }
         
-        for idx, row in self.df.iterrows():
-            issues = []
-            
-            if pd.isna(row['term']) or str(row['term']).strip() == '':
-                issues.append("empty term")
-            
-            if row['type'] not in valid_types:
-                issues.append(f"invalid type: {row['type']}")
-            
-            if row['polarity'] not in valid_polarities:
-                issues.append(f"invalid polarity: {row['polarity']}")
-            
-            if row['intensity'] not in valid_intensities:
-                issues.append(f"invalid intensity: {row['intensity']}")
-            
-            if row['risk_flag'] not in valid_risks:
-                issues.append(f"invalid risk_flag: {row['risk_flag']}")
-            
-            if issues:
-                invalid_rows.append((idx, row['term'], issues))
+        for col, default in defaults.items():
+            if col not in self.df.columns:
+                self.df[col] = default
+            else:
+                # NaN과 빈 문자열을 기본값으로 대체
+                if col == 'normalized_form':
+                    # normalized_form은 term 값으로 사용
+                    self.df[col] = self.df[col].fillna(self.df['term'])
+                    # 빈 문자열 처리
+                    mask = self.df[col].apply(lambda x: isinstance(x, str) and x.strip() == '')
+                    self.df.loc[mask, col] = self.df.loc[mask, 'term']
+                else:
+                    self.df[col] = self.df[col].fillna(default)
+                    self.df[col] = self.df[col].apply(
+                        lambda x: default if (isinstance(x, str) and x.strip() == '') else x
+                    )
         
-        # 무효한 row 제거 + 경고
-        if invalid_rows:
-            logger.warning(f"Found {len(invalid_rows)} invalid rows:")
-            for idx, term, issues in invalid_rows[:5]:  # 처음 5개만 표시
-                logger.warning(f"  Row {idx} ({term}): {', '.join(issues)}")
-            
-            valid_indices = [i for i in range(len(self.df)) 
-                           if i not in [r[0] for r in invalid_rows]]
-            self.df = self.df.iloc[valid_indices].reset_index(drop=True)
-            logger.info(f"Filtered to {len(self.df)} valid rows")
+        # 3. 동적 유효값 학습 (화이트리스트 대신)
+        self.valid_types = set(self.df['type'].unique())
+        self.valid_polarities = set(self.df['polarity'].unique())
+        self.valid_intensities = set(self.df['intensity'].unique())
+        self.valid_risks = set(self.df['risk_flag'].unique())
+        
+        # 4. 통계 정보 로깅
+        logger.info(f"CSV Validation Complete:")
+        logger.info(f"  - Total rows: {len(self.df)}")
+        logger.info(f"  - Types discovered: {self.valid_types}")
+        logger.info(f"  - Polarities: {self.valid_polarities}")
+        logger.info(f"  - Intensities: {self.valid_intensities}")
+        logger.info(f"  - Risk flags: {self.valid_risks}")
+
     
     def _index_by_term(self) -> Dict[str, List[Dict]]:
         """term 인덱싱 (중복 term 지원)"""
