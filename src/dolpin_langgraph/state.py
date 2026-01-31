@@ -238,7 +238,9 @@ class RecommendedAction(TypedDict):
         "amplify_viral",
         "legal_response",
         "monitor_only",
-        "engage_influencers"
+        "engage_influencers",
+        "internal_review",
+        "prepare_communication"
     ]
     urgency: Literal["immediate", "high", "medium", "low"]
     description: str
