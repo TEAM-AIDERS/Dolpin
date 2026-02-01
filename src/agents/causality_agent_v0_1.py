@@ -1,8 +1,14 @@
 from typing import List, Dict, Set
 from collections import defaultdict
 
-
 class CausalityAgent:
+    
+    """
+    CausalityAgent v0.1
+    - referenced_id 기반 구조적 인과 체인 생성 전용
+    - 해석, type 분석, 그래프 분석은 수행하지 않음
+    """
+    
     def __init__(self, items: List[Dict]):
         self.items = items
         self.id_map = {item["id"]: item for item in items}
@@ -40,15 +46,16 @@ class CausalityAgent:
                 results.append(path + [node_id])
                 return
             for child in children:
-                dfs(child, path + [node_id], visited.copy())
+                dfs(child, path + [node_id], visited)
 
         dfs(start_id, [], set())
         return results
 
     def _sort_chain(self, chain):
-        return sorted(chain, key=lambda x: self.id_map[x]["created_at"])
+        return chain
 
-    def build_chains(self):
+
+    def build_structural_chains(self):
         chains = []
         for item in self.items:
             if item.get("referenced_id") is None:
@@ -61,6 +68,9 @@ class CausalityAgent:
                         "length": len(ordered)
                     })
         return chains
+    
+    def build_chains(self):
+        return self.build_structural_chains()
 
 
 def run_causality_agent(state: dict) -> dict:
