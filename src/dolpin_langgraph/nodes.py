@@ -10,7 +10,8 @@ LangGraph 노드 래퍼 함수
 2. 에이전트 완성 후: Stub을 실제 에이전트 호출로 교체
 """
 
-import logging
+import logging, os
+import pinecone
 from datetime import datetime
 from typing import Dict, Any
 
@@ -634,8 +635,14 @@ def playbook_node(state: AnalysisState) -> AnalysisState:
     """대응 전략 생성 노드"""
     try:
         from src.agents.playbook_agent import generate_strategy
-        
-        playbook_result = generate_strategy(state, use_llm_enhancement=True)
+        # Router 판단 기반 LLM 결정
+        route2 = state.get("route2_decision")  # edges.py에서 설정
+        api_key_exists = bool(os.getenv("OPENAI_API_KEY"))
+    
+        # full_analysis 경로 → LLM 사용
+        use_llm = (route2 == "full_analysis" and api_key_exists)
+    
+        playbook_result = generate_strategy(state, use_llm_enhancement=use_llm)
         state["playbook"] = playbook_result
         
         # Insight 생성
