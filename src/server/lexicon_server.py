@@ -5,7 +5,7 @@ Custom Lexicon MCP Server - 공통 참조 지식 베이스
 입력 텍스트에서 팬덤 특화 표현, 행동 트리거, 맥락 신호를 구조적으로 제공한다.
 판단이나 추론을 수행하지 않으며, 하위 Agent들이 활용할 정적 지식 조회 인터페이스다.
 
-버전: 260125 - Bug fix + validation + performance optimization
+버전: 260203 - entry 생성 실패 시 fallback 생성 로직 포함
 """
 
 import logging
@@ -246,12 +246,18 @@ class LexiconServer:
     # ========== 분석용 도구 ==========
     
     def extract_matches(self, text: str) -> List[LexiconMatch]:
-        """텍스트에서 매칭되는 용어 추출 (최적화: text 원본 + O(1) 매치)"""
+        """
+        텍스트에서 매칭되는 용어 추출
+
+        개선사항:
+        - LexiconEntry 생성 실패 시 fallback entry 생성
+        - 매치가 손실되지 않도록 보장
+        """
         matches = []
         
         # text 원본 사용 (인덱스가 원문 기준)
         if self.term_pattern:
-            for match in self.term_pattern.finditer(text):  # ← text (text_lower 아님)
+            for match in self.term_pattern.finditer(text): 
                 matched_term_lower = match.group(0).lower()
                 start_idx = match.start()
                 end_idx = match.end()
@@ -274,7 +280,18 @@ class LexiconServer:
                                 context_window=context
                             ))
                         except TypeError as e:
-                            logger.error(f"Failed to create LexiconEntry for {term}: {e}")
+                            # ===== Fallback: 기본값으로 LexiconEntry 생성 =====
+                            logger.warning(
+                                f"Entry 생성 실패 (term: {term}): {e}. "
+                                f"기본값으로 Entry를 생성합니다."
+                            )
+                        
+                            fallback_entry = self._create_fallback_entry(term, entry_dict, error=str(e))
+                            matches.append(LexiconMatch(
+                                term=term,
+                                entry=fallback_entry,
+                                context_window=context
+                            ))
         else:
             # Fallback: 정규식 실패 시 길이순 순회
             logger.debug("Using fallback term matching (regex unavailable)")
@@ -296,11 +313,70 @@ class LexiconServer:
                                 context_window=context
                             ))
                         except TypeError as e:
-                            logger.error(f"Failed to create LexiconEntry for {term}: {e}")
+                            # ===== Fallback =====
+                            logger.warning(
+                                f"LexiconEntry 생성 실패 (term: {term}): {e}. "
+                                f"fallback entry 생성합니다."
+                            )
+                            fallback_entry = self._create_fallback_entry(term, entry_dict, error=str(e))
+                            matches.append(LexiconMatch(
+                                term=term,
+                                entry=fallback_entry,
+                                context_window=context
+                            ))
         
         logger.debug(f"Found {len(matches)} matches in text")
         return matches
     
+    def _create_fallback_entry(
+        self, 
+        term: str, 
+        entry_dict: Dict[str, Any], 
+        error: str
+    ) -> LexiconEntry:
+        """
+        LexiconEntry 생성 실패 시 fallback entry 생성
+    
+        Args:
+            term: 매칭된 용어
+            entry_dict: 원본 dict (일부 필드만 있을 수 있음)
+            error: 에러 메시지
+    
+        Returns:
+            exiconEntry: 기본값으로 채워진 fallback entry
+        """
+        # 안전한 값 추출 (없으면 기본값)
+
+        def safe_get(key: str, default: Any) -> Any:
+            value = entry_dict.get(key, default)
+            # None이거나 빈 문자열이면 기본값 사용
+            if value is None or (isinstance(value, str) and value.strip() == ''):
+                return default
+            return value
+    
+        # Fallback LexiconEntry 생성
+        fallback = LexiconEntry(
+            term=term,
+            normalized_form=safe_get('normalized_form', term),  # term으로 대체
+            type=safe_get('type', 'unknown'),  # 기본값
+            sentiment_label=safe_get('sentiment_label', 'neutral'),
+            trigger_type=safe_get('trigger_type', 'context'),
+            action_strength=safe_get('action_strength', 'none'),
+            fandom_scope=safe_get('fandom_scope', 'global'),
+            target_entity=safe_get('target_entity', 'unknown'),
+            polarity=safe_get('polarity', 'neutral'),
+            intensity=safe_get('intensity', 'low'),
+            risk_flag=safe_get('risk_flag', 'none'),
+            example_text=safe_get('example_text', ''),
+            usage_mode=safe_get('usage_mode', 'literal'),
+            notes=f"[FALLBACK] {error}",  # 👈 에러 정보 기록
+            created_at=safe_get('created_at', ''),
+            updated_at=safe_get('updated_at', '')
+        )
+    
+        logger.debug(f"Created fallback entry for term: {term}")
+        return fallback
+
     def analyze_text(self, text: str) -> AnalysisContext:
         """텍스트 전체 분석 - Agent들의 입력 컨텍스트"""
         matches = self.extract_matches(text)
