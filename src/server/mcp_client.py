@@ -2,22 +2,29 @@
 MCP Client - 모든 MCP 서버 호출을 관리하는 단일 진입점
 
 역할:
-- Custom Lexicon MCP 호출
-- Legal MCP 호출 (향후)
-- 워크플로우에서 통일된 인터페이스 제공
+- Custom Lexicon MCP 호출 및 결과 전달
+- Legal MCP 호출 (향후 확장)
+- LangGraph 워크플로우 전반에서 통일된 MCP 인터페이스 제공
 
 구조:
-graph.py → nodes.py → mcp_client.py → 각 MCP 서버
+graph.py → nodes.py → mcp_client.py → 각 MCP 서버 (Lexicon, Legal 등)
 
-Singleton 패턴:
-- 같은 프로세스 내에서는 MCPClient 인스턴스 1개만 생성
-- CSV 로딩은 1번만 수행 (이후 캐시 사용)
-- 프로세스 종료 시 새로 생성
+Singleton 관리 방식:
+- MCPClient 인스턴스는 모듈 전역 get_mcp_client()를 통해 단일 인스턴스로 관리됨
+- 같은 프로세스 내에서는 항상 동일한 MCPClient 인스턴스를 반환
+- Lexicon CSV는 최초 초기화 시 1회만 로딩되며 이후 캐시된 서버 인스턴스를 재사용
+- 프로세스 종료 시에만 인스턴스가 소멸되며, 재시작 시 새로 초기화됨
 
-버전: v1.1 (260131) - Singleton 패턴 적용
+설계 의도:
+- MCP 서버 초기화 비용(파일 로딩, 인덱싱, 정규식 컴파일)을 최소화
+- Agent 노드에서는 MCPClient의 메서드만 호출하도록 하여 의존성을 단순화
+- 향후 Legal MCP, 기타 MCP 서버 확장 시 인터페이스 변경 최소화
+
+버전: v2 (260203) - 전역 get_mcp_client 기반 Singleton 정리
 """
 
-import logging
+
+import logging, threading
 from typing import Dict, Any, Optional, List
 
 from src.server.lexicon_server import LexiconServer
@@ -30,65 +37,16 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 class MCPClient:
-    """모든 MCP 서버 호출을 관리하는 클라이언트 (Singleton)"""
-    
-    _instance = None
-    _initialized = False
-    _lexicon_server = None
-    _lexicon_csv_path = None
-    
-    def __new__(cls, lexicon_csv_path: str = "custom_lexicon.csv"):
-        """
-        Singleton 인스턴스 반환
-        
-        같은 프로세스 내에서는 항상 같은 인스턴스를 반환합니다.
-        """
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._lexicon_csv_path = lexicon_csv_path
-        return cls._instance
-    
     def __init__(self, lexicon_csv_path: str = "custom_lexicon.csv"):
-        """
-        MCP 서버들 초기화 (첫 호출에서만 실제 실행)
-        
-        Args:
-            lexicon_csv_path: Lexicon CSV 경로
-        """
-        # 이미 초기화되었으면 스킵
-        if MCPClient._initialized:
-            return
-        
-        # Custom Lexicon MCP 초기화 (한 번만)
-        MCPClient._lexicon_server = LexiconServer(lexicon_csv_path)
-        logger.info(f"MCPClient Singleton initialized with {lexicon_csv_path}")
-        logger.info("(이후 호출에서는 캐시된 인스턴스 사용)")
-        
-        # Legal MCP 초기화 (향후 구현)
-        self.legal_server = None  # self.LegalServer() 추가 예정
-        
-        MCPClient._initialized = True
-    
+        self._lexicon_csv_path = lexicon_csv_path
+        self._lexicon_server = LexiconServer(lexicon_csv_path)
+        self.legal_server = None
+        logger.info(f"MCPClient initialized with {lexicon_csv_path}")
+
     @property
     def lexicon_server(self) -> LexiconServer:
-        """캐시된 LexiconServer 인스턴스 반환"""
-        if MCPClient._lexicon_server is None:
-            # 초기화되지 않았으면 자동 초기화
-            self.__init__()
-        return MCPClient._lexicon_server
-    
-    @classmethod
-    def reset(cls):
-        """
-        테스트용: Singleton 리셋
-        
-        새로운 인스턴스를 강제로 생성하려면 호출합니다.
-        """
-        cls._instance = None
-        cls._initialized = False
-        cls._lexicon_server = None
-        cls._lexicon_csv_path = None
-        logger.info("MCPClient Singleton reset")
+        return self._lexicon_server
+
     
     # ========== Custom Lexicon MCP 도구 ==========
     
@@ -103,40 +61,6 @@ class MCPClient:
     def lexicon_analyze(self, text: str) -> Dict[str, Any]:
         """
         텍스트 분석 및 팬덤 표현 추출
-        
-        상태 저장 예:
-        state.lexicon_matches = mcp.lexicon_analyze(text)
-        state.matched_terms = [m.term for m in state.lexicon_matches['matches']]
-        state.sentiment_signals = state.lexicon_matches['sentiment_signals']
-        state.risk_flags = state.lexicon_matches['risk_flags']
-        
-        Returns:
-        {
-            "text": "...",
-            "matches": [
-                {
-                    "term": "불매",
-                    "normalized": "불매",
-                    "type": "boycott_action",
-                    "context": "...주변 텍스트..."
-                },
-                ...
-            ],
-            "aggregated_signals": {
-                "total_matches": 2,
-                "matched_terms": ["불매", "탈빠"],
-                "sentiment_mix": {...},
-                "action_triggers": [...],
-                "risk_flags": ["alert", "alert"],
-                "target_entities": ["agency", "artist"]
-            },
-            "sentiment_signals": [
-                {"term": "불매", "polarity": "negative", "intensity": "high", ...},
-                ...
-            ],
-            "routing_signals": [...],
-            "action_signals": [...]
-        }
         """
         result = self.lexicon_server.execute_tool("analyze_text", {"text": text})
         return result
@@ -153,7 +77,7 @@ class MCPClient:
         return self.lexicon_server.execute_tool("get_sentiment_context", {"text": text})
     
     def prepare_routing_context(self, text: str) -> Dict[str, Any]:
-        """RouterAgent용 컨텍스트 준비"""
+        """Router 컨텍스트 준비"""
         return self.lexicon_server.execute_tool("get_routing_context", {"text": text})
     
     def prepare_causality_context(self, text: str) -> Dict[str, Any]:
@@ -204,18 +128,28 @@ class MCPClient:
 
 # 싱글톤으로 사용할 수 있도록
 _mcp_client: Optional[MCPClient] = None
-
+_mcp_lock = threading.Lock()
+_mcp_csv_path: Optional[str] = None 
 
 def get_mcp_client(lexicon_csv_path: str = "custom_lexicon.csv") -> MCPClient:
-    """
-    MCPClient 싱글톤 인스턴스 반환
-    
-    워크플로우 초기화 시:
-    mcp = get_mcp_client()
-    """
-    global _mcp_client
-    if _mcp_client is None:
-        _mcp_client = MCPClient(lexicon_csv_path)
-    return _mcp_client
+    global _mcp_client, _mcp_csv_path
+    with _mcp_lock:
+        if _mcp_client is None:
+            _mcp_client = MCPClient(lexicon_csv_path)
+            _mcp_csv_path = lexicon_csv_path
+        else:
+            if _mcp_csv_path != lexicon_csv_path:
+                logger.warning(
+                    f"get_mcp_client called with different csv_path "
+                    f"({lexicon_csv_path}) but singleton already initialized with "
+                    f"({_mcp_csv_path}). Using existing instance."
+                    "새로운 csv 적용을 위해서는 프로세스를 재시작해야 합니다."
+                )
+        return _mcp_client
 
-
+def reset_mcp_client():
+    global _mcp_client, _mcp_csv_path
+    with _mcp_lock:
+        _mcp_client = None
+        _mcp_csv_path = None
+        logger.info("MCPClient singleton reset")
