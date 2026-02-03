@@ -9,7 +9,7 @@ LangGraph 노드 래퍼 함수
 """
 
 import logging, os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from .state import AnalysisState, ErrorLog
@@ -66,7 +66,8 @@ def _update_node_insight(state: AnalysisState, node_id: str, insight: str) -> No
 
 
 def _utcnow_z() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 
 # ============================================================
