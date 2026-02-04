@@ -103,7 +103,7 @@ def _check_crisis_signals(sentiment_result) -> bool:
     조건 (하나라도 해당):
     - boycott >= 0.2
     - fanwar > 0.1
-    - dominant_sentiment == "meme_negative"
+    - dominant_sentiment이 부정적 신호 (disappointment, boycott, fanwar)
     - has_mixed_sentiment + sentiment_shift == "worsening"
     """
     dist = sentiment_result["sentiment_distribution"]
@@ -116,8 +116,9 @@ def _check_crisis_signals(sentiment_result) -> bool:
     if dist.get("fanwar", 0) > 0.1:
         return True
     
-    # dominant_sentiment == "meme_negative"
-    if sentiment_result.get("dominant_sentiment") == "meme_negative":
+    # dominant_sentiment이 부정적 신호
+    dominant = sentiment_result.get("dominant_sentiment")
+    if dominant in ["disappointment", "boycott", "fanwar"]:
         return True
     
     # has_mixed_sentiment + sentiment_shift == "worsening"

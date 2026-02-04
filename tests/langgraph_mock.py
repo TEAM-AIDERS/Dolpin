@@ -3,14 +3,9 @@ Mock 테스트 스크립트
 Stub 구현으로 전체 워크플로우를 테스트합니다.
 
 실행 방법:
-    python src/langgraph/test_mock.py
+    python tests/test_mcp_mock.py
     또는
-    python -m src.langgraph.test_mock
-
-TODO: 실제 Agent 구현 완료 후
-- nodes.py의 Stub을 실제 Agent 호출로 교체
-- pytest 기반 unit test로 전환
-- 엣지 케이스 추가 (mixed sentiment, fanwar 등)
+    pytest tests/test_mcp_mock.py -v
 """
 
 import json
@@ -19,10 +14,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 # 프로젝트 루트를 PYTHONPATH에 추가
-project_root = Path(__file__).parent.parent.parent
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.dolpin_langgraph.graph import compile_workflow
+from src.dolpin_langgraph.nodes import router1_node
 from src.dolpin_langgraph.state import AnalysisState, SpikeEvent, Message
 
 
@@ -173,7 +169,7 @@ def print_state_summary(state: AnalysisState):
 def save_result_to_file(state: AnalysisState, filename: str = "mock_result.json"):
     """결과를 JSON 파일로 저장"""
     # tests/outputs 디렉토리 생성
-    output_dir = Path(__file__).parent.parent.parent / "tests" / "outputs"
+    output_dir = Path(__file__).parent / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 파일 경로
@@ -182,7 +178,7 @@ def save_result_to_file(state: AnalysisState, filename: str = "mock_result.json"
     # datetime 객체를 문자열로 변환
     def convert_datetime(obj):
         if isinstance(obj, datetime):
-            return obj.isoformat() + "Z"
+            return obj.isoformat().replace('+00:00', 'Z')
         return obj
     
     with open(filepath, "w", encoding="utf-8") as f:

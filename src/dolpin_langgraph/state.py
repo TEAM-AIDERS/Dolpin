@@ -113,12 +113,11 @@ class SpikeAnalysisResult(TypedDict):
 # ============================================================
 
 class SentimentDistribution(TypedDict):
-    """감정 분포"""
+    """감정 분포 - SentimentAgent에서 반환하는 6개 라벨"""
     support: float
     disappointment: float
     boycott: float
-    meme_positive: float
-    meme_negative: float
+    meme: float
     fanwar: float
     neutral: float
 
@@ -127,6 +126,7 @@ class LexiconMatch(TypedDict):
     """렉시콘 매칭 정보"""
     count: int
     type: str  # "agreement_slang", "meme_positive", ...
+    terms: List[str] 
 
 
 class SentimentAnalysisResult(TypedDict):
@@ -239,7 +239,9 @@ class RecommendedAction(TypedDict):
         "amplify_viral",
         "legal_response",
         "monitor_only",
-        "engage_influencers"
+        "engage_influencers",
+        "internal_review",
+        "prepare_communication"
     ]
     urgency: Literal["immediate", "high", "medium", "low"]
     description: str
@@ -294,7 +296,7 @@ class ExecBrief(TypedDict):
 
 class ErrorLog(TypedDict):
     """에러 로그 (디버깅용)"""
-    stage: Literal["spike_analyzer", "sentiment", "causality", "legal_rag", "playbook"]
+    stage: Literal["spike_analyzer", "router1", "lexicon_lookup", "sentiment", "router2", "causality", "router3", "legal_rag", "amplification", "playbook", "exec_brief"]
     error_type: Literal["timeout", "schema_error", "exception", "api_error"]
     message: str
     occurred_at: str  # ISO 8601
