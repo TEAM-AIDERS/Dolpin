@@ -8,7 +8,8 @@ from typing import List, Dict, Any, Tuple
 from dotenv import load_dotenv
 from ..dolpin_langgraph.state import SpikeEvent, SpikeAnalysisResult
 from google.cloud import monitoring_v3
-
+from ..server.mcp_client import get_mcp_client
+import asyncio
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -17,6 +18,9 @@ class SpikeAnalyzerAgent:
     def __init__(self):
         # 통계 베이스라인 (최근 24시간)
         self.baseline_history = deque(maxlen=288)
+        
+        # MCP Client 초기화 
+        self.mcp = get_mcp_client()
         
         # GCP 환경 설정 
         self.project_id = os.getenv("GCP_PROJECT_ID")
@@ -60,12 +64,30 @@ class SpikeAnalyzerAgent:
             "acceleration": round(float(accel), 3),
             "eps_1m": round(float(eps_1m), 4)
         }
-    # MCP 구현 전까지 임시로 일반 함수(def)로 유지
+    # MCP를 통한 키워드 리스크 산출 
     def _calculate_keyword_risk(self, messages: List[Dict]) -> float:
        if not messages: return 0.0
        
-       # TODO: Custom Lexicon MCP 호출 로직 구현 예정
-    
+       # 모든 메시지 텍스트 결합
+       combined_text = " ".join([m.get('text', '') for m in messages])
+       
+       try:
+           analysis_result = self.mcp.lexicon_analyze(combined_text)
+           risk_score = 0.0
+           matched_terms = analysis_result.get("matched_terms", [])
+           
+           for entry in matched_terms:
+                strength = entry.get("action_strength", "none")
+                if strength == "collective": risk_score += 0.5
+                elif strength == "declaration": risk_score += 0.3
+                
+                flag = entry.get("risk_flag", "none")
+                if flag == "alert": risk_score += 0.5
+                elif flag == "watch": risk_score += 0.2
+       except Exception as e:
+           logger.error(f"MCP 분석 에러: {e}")
+           return 0.0
+
     # 신뢰 가능한 급증인지 
     def _calculate_confidence(self, spike_rate: float, data_completeness: str) -> float:
         base = 0.9
@@ -87,8 +109,9 @@ class SpikeAnalyzerAgent:
         
         all_metrics = {**metrics, "actionability_score": action_score}
         series_list = []
+        
         # 각 메트릭 딕셔너리 형태로 구성 
-        for m_name, m_val in metrics.items():
+        for m_name, m_val in all_metrics.items():
             series = {
                 "metric": {
                     "type": f"custom.googleapis.com/dolpin/analysis/{m_name}",
