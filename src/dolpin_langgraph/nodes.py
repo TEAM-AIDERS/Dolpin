@@ -500,79 +500,57 @@ def legal_rag_node(state: AnalysisState) -> AnalysisState:
 # ============================================================
 
 def amplification_node(state: AnalysisState) -> AnalysisState:
-    """
-    긍정 바이럴 기회 요약 노드 (현재 stub)
-    """
+    """긍정 바이럴 기회 요약 노드"""
     _ensure_state_collections(state)
-
+    
     try:
         causality = state.get("causality_result") or {}
         sentiment = state.get("sentiment_result") or {}
         spike = state.get("spike_analysis") or {}
-
+        
+        viral_indicators = spike.get("viral_indicators", {})
+        
+        # ===== Hub Accounts =====
+        hub_accounts = []
+        for hub in (causality.get("hub_accounts") or [])[:5]:
+            hub_accounts.append({
+                "account_id": hub["account_id"],
+                "influence_score": hub["influence_score"],
+                "account_type": hub.get("account_type", "general"),
+                "follower_count": hub.get("follower_count", 0)
+            })
+        
+        # ===== Representative Messages (초간단!) =====
+        support_msgs = (sentiment.get("representative_messages", {}).get("support") or [])
+        representative_messages = [
+            {"text": msg}  # 👈 text만!
+            for msg in support_msgs[:5]
+        ]
+        
+        # ===== 결과 =====
         result = {
-            "top_platforms": spike.get("viral_indicators", {}).get("cross_platform", ["twitter"]),
-            "hub_accounts": [
-                {
-                    "account_id": hub["account_id"],
-                    "influence_score": hub["influence_score"],
-                    "suggested_action": "공식 콘텐츠 제공"
-                }
-                for hub in (causality.get("hub_accounts") or [])[:3]
-            ],
-            "representative_messages": [
-                {"text": msg, "engagement": 1000}
-                for msg in (sentiment.get("representative_messages", {}).get("support") or [])[:3]
-            ],
-            "suggested_actions": [
-                "official_twitter 참여 독려",
-                "챌린지 공식 안무 영상 공유",
-                "긍정 콘텐츠 리트윗"
-            ]
+            "top_platforms": viral_indicators.get("cross_platform", ["twitter"]),
+            "hub_accounts": hub_accounts,
+            "representative_messages": representative_messages
         }
-
+        
         state["amplification_summary"] = result
-        _update_node_insight(state, "amplification", f"platforms={len(result['top_platforms'])}, hubs={len(result['hub_accounts'])}")
+        
+        platform_count = len(result["top_platforms"])
+        hub_count = len(result["hub_accounts"])
+        msg_count = len(result["representative_messages"])
+        _update_node_insight(
+            state, 
+            "amplification", 
+            f"{platform_count}개 플랫폼, {hub_count}개 허브, {msg_count}개 메시지"
+        )
+        
         return state
-
+    
     except Exception as e:
-        _add_error_log(state, "causality", "exception", f"Amplification 에러: {str(e)}")
+        _add_error_log(state, "amplification", "exception", str(e))
         state["amplification_summary"] = None
-        _update_node_insight(state, "amplification", "요약 실패(예외)")
-        return state
-
-
-# ============================================================
-# playbook
-# ============================================================
-
-def playbook_node(state: AnalysisState) -> AnalysisState:
-    """대응 전략 생성 노드"""
-    _ensure_state_collections(state)
-
-    try:
-        from src.agents.playbook_agent import generate_strategy
-
-        route2 = state.get("route2_decision")
-        api_key_exists = bool(os.getenv("OPENAI_API_KEY"))
-
-        # full_analysis 경로 → LLM 사용
-        use_llm = (route2 == "full_analysis" and api_key_exists)
-
-        playbook_result = generate_strategy(state, use_llm_enhancement=use_llm)
-        state["playbook"] = playbook_result
-
-        situation_type = playbook_result.get("situation_type", "unknown")
-        priority = playbook_result.get("priority", "unknown")
-        action_count = len(playbook_result.get("recommended_actions", []))
-
-        _update_node_insight(state, "playbook", f"{situation_type}/{priority}, actions={action_count}")
-        return state
-
-    except Exception as e:
-        _add_error_log(state, "playbook", "exception", str(e))
-        state["playbook"] = None
-        _update_node_insight(state, "playbook", "생성 실패(예외)")
+        _update_node_insight(state, "amplification", "실패")
         return state
 
 
