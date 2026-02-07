@@ -520,10 +520,10 @@ def amplification_node(state: AnalysisState) -> AnalysisState:
                 "follower_count": hub.get("follower_count", 0)
             })
         
-        # ===== Representative Messages (초간단!) =====
+        # ===== Representative Messages =====
         support_msgs = (sentiment.get("representative_messages", {}).get("support") or [])
         representative_messages = [
-            {"text": msg}  # 👈 text만!
+            {"text": msg}  # text만!
             for msg in support_msgs[:5]
         ]
         
@@ -551,6 +551,39 @@ def amplification_node(state: AnalysisState) -> AnalysisState:
         _add_error_log(state, "amplification", "exception", str(e))
         state["amplification_summary"] = None
         _update_node_insight(state, "amplification", "실패")
+        return state
+
+# ============================================================
+# playbook
+# ============================================================
+
+def playbook_node(state: AnalysisState) -> AnalysisState:
+    """대응 전략 생성 노드"""
+    _ensure_state_collections(state)
+
+    try:
+        from src.agents.playbook_agent import generate_strategy
+
+        route2 = state.get("route2_decision")
+        api_key_exists = bool(os.getenv("OPENAI_API_KEY"))
+
+        # full_analysis 경로 → LLM 사용
+        use_llm = (route2 == "full_analysis" and api_key_exists)
+
+        playbook_result = generate_strategy(state, use_llm_enhancement=use_llm)
+        state["playbook"] = playbook_result
+
+        situation_type = playbook_result.get("situation_type", "unknown")
+        priority = playbook_result.get("priority", "unknown")
+        action_count = len(playbook_result.get("recommended_actions", []))
+
+        _update_node_insight(state, "playbook", f"{situation_type}/{priority}, actions={action_count}")
+        return state
+
+    except Exception as e:
+        _add_error_log(state, "playbook", "exception", str(e))
+        state["playbook"] = None
+        _update_node_insight(state, "playbook", "생성 실패(예외)")
         return state
 
 
@@ -618,6 +651,23 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         }
 
         _update_node_insight(state, "exec_brief", "generated")
+
+        # Bot Token이 있으면 자동 전송
+        if os.getenv("SLACK_BOT_TOKEN"):
+            try:
+                from src.integrations.slack import format_to_slack, send_to_slack
+                
+                logger.info("Slack 전송 중...")
+                slack_message = format_to_slack(state)
+                success = send_to_slack(slack_message)
+                if success:
+                    logger.info("Slack 전송 완료")
+                else:
+                    logger.warning("Slack 전송 실패") # 워크플로우 계속 진행하도록 경고 로그만 남김
+                
+            except Exception as e:
+                logger.warning(f"Slack 전송 오류: {e}") # 워크플로우 계속 진행하도록 경고 로그만 남김
+        
         return state
 
     except Exception as e:
