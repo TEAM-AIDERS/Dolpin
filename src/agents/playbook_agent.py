@@ -129,11 +129,12 @@ def _generate_crisis_strategy(state: AnalysisState) -> Dict[str, Any]:
 
 
 def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
-    """기회 확대 전략 (Amplification 경로) - 기본 구조만"""
+    """기회 확대 전략 (Amplification 경로)"""
     amplification = state.get("amplification_summary", {})
     spike = state.get("spike_analysis", {})
     
     spike_rate = spike.get("spike_rate", 0)
+    viral_indicators = spike.get("viral_indicators", {})
     
     # Priority 결정
     if spike_rate >= 5.0:
@@ -149,14 +150,15 @@ def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
     # 1. 긍정 바이럴 확산
     rep_msgs = amplification.get("representative_messages", [])
     target_posts = []
+    
     for i, msg in enumerate(rep_msgs[:3]):
-        if isinstance(msg, dict):
-            target_posts.append({
-                "id": f"post-{i}",
-                "source": "twitter",
-                "source_message_id": msg.get("id", "unknown"),
-                "url": f"https://twitter.com/status/{msg.get('id', '')}"
-            })
+        # msg는 이제 {"text": "..."}만 가짐
+        target_posts.append({
+            "id": f"post-{i}",
+            "source": "twitter",
+            "source_message_id": f"amplify-msg-{i}",  # 간단한 ID
+            "url": ""  
+        })
     
     actions.append({
         "action": "amplify_viral",
@@ -168,7 +170,8 @@ def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
     })
     
     # 2. 허브 계정 협력
-    if len(amplification.get("hub_accounts", [])) > 0:
+    hub_count = len(amplification.get("hub_accounts", []))
+    if hub_count > 0:
         actions.append({
             "action": "engage_influencers",
             "urgency": "high",
@@ -178,7 +181,7 @@ def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
     
     # Key Opportunities
     key_opportunities = []
-    hub_count = len(amplification.get("hub_accounts", []))
+    
     if hub_count > 0:
         key_opportunities.append(f"{hub_count}개 허브 계정 활용 가능")
     
@@ -186,9 +189,11 @@ def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
     if platforms:
         key_opportunities.append(f"{', '.join(platforms[:2])} 플랫폼 집중")
     
-    viral_indicators = spike.get("viral_indicators", {})
     if viral_indicators.get("international_reach", 0) >= 0.3:
         key_opportunities.append("해외 팬덤 확장 기회")
+    
+    if viral_indicators.get("has_breakout"):
+        key_opportunities.append("Breakout 급등 - 빠른 확산")
     
     return {
         "situation_type": "opportunity",
@@ -198,7 +203,6 @@ def _generate_opportunity_strategy(state: AnalysisState) -> Dict[str, Any]:
         "key_opportunities": key_opportunities,
         "target_channels": platforms if platforms else ["official_twitter"]
     }
-
 
 def _generate_monitoring_strategy(state: AnalysisState) -> Dict[str, Any]:
     """모니터링 전략 (sentiment_only 경로)"""
