@@ -312,7 +312,6 @@ class AmplificationHubAccount(TypedDict):
     """확산 기회의 허브 계정"""
     account_id: str
     influence_score: float
-    suggested_action: str
 
 
 class AmplificationMessage(TypedDict):
@@ -326,7 +325,6 @@ class AmplificationSummary(TypedDict):
     top_platforms: List[Source]
     hub_accounts: List[AmplificationHubAccount]
     representative_messages: List[AmplificationMessage]
-    suggested_actions: List[str]
 
 
 # ============================================================
