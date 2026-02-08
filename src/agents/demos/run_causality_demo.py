@@ -9,6 +9,17 @@ from sentiment_adapter import SentimentAgentAdapter
 from causality_agent_v0_4 import run_causality_agent
 
 
+def to_router_schema(result: dict) -> dict:
+    return {
+        "trigger_source": result["trigger_source"],
+        "hub_accounts": result["hub_accounts"],
+        "retweet_network_metrics": result["retweet_network_metrics"],
+        "cascade_pattern": result["cascade_pattern"],
+        "estimated_origin_time": result["estimated_origin_time"],
+        "key_propagation_paths": result["key_propagation_paths"],
+    }
+
+
 if __name__ == "__main__":
 
     # 1. 테스트용 텍스트 시퀀스 (시간 흐름 가정)
@@ -50,15 +61,24 @@ if __name__ == "__main__":
         "items": items,
         "enable_graph": True,
         "top_k": 5,
+        "include_analysis": True,
+        "include_raw_types": True,
     }
 
     result = run_causality_agent(state)
 
-    # 5. 결과 출력
-    print("\n=== Causality Chains ===")
-    for chain in result["causality"]["chains"]:
-        print(chain)
+    causality_full = result["causality"]
+    causality_for_router = to_router_schema(causality_full)
 
-    print("\n=== Graph Analysis ===")
-    print(result["causality"]["graph_analysis"])
-)
+    # 5-1. Router / Playbook으로 전달될 최종 스키마
+    print("\n=== Router Input (CausalityAnalysisResult) ===")
+    from pprint import pprint
+    pprint(causality_for_router)
+
+    # 5-2. (디버그용) Causality 내부 분석 결과
+    print("\n=== Debug: Causality Chains ===")
+    for c in causality_full.get("debug", {}).get("chains", []):
+        pprint(c)
+
+    print("\n=== Debug: Graph Analysis ===")
+    pprint(causality_full.get("debug", {}).get("graph_analysis"))
