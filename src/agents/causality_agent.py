@@ -1,5 +1,5 @@
 """
-CausalityAgent v0.4 (final, pipeline-aligned)
+CausalityAgent
 
 역할
 - spike_event 기반 네트워크 구조 분석
@@ -10,6 +10,11 @@ CausalityAgent v0.4 (final, pipeline-aligned)
 - spike_event 단독으로 동작 가능
 - sentiment_context는 Optional (설명 보조용)
 - Router / Playbook으로 전달되는 출력은 CausalityAnalysisResult 스키마만 포함
+
+그래프 가정
+- graph_assumption:
+    - tree: 각 노드가 단일 부모
+    - dag: 다중 부모 허용 (path-based DFS)
 """
 
 from __future__ import annotations
