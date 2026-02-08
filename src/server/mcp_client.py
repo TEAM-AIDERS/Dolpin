@@ -24,10 +24,16 @@ Singleton 관리 방식:
 """
 
 
-import logging, threading
+
+import logging, threading, json, asyncio, os, sys
 from typing import Dict, Any, Optional, List
+from contextlib import AsyncExitStack
 
 from src.server.lexicon_server import LexiconServer
+
+# MCP 프로토콜 라이브러리 추가
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,16 @@ class MCPClient:
         self._lexicon_server = LexiconServer(lexicon_csv_path)
         self.legal_server = None
         logger.info(f"MCPClient initialized with {lexicon_csv_path}")
+    
+        self._legal_session: Optional[ClientSession] = None
+        self._legal_exit_stack: Optional[AsyncExitStack] = None
+        self._legal_lock = asyncio.Lock() # 비동기 연결 시 중복 방지
+        
+        self.legal_server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "src.server.pinecone_server"], 
+            env=os.environ.copy()
+        )
 
     @property
     def lexicon_server(self) -> LexiconServer:
@@ -88,20 +104,59 @@ class MCPClient:
         """PlaybookAgent용 컨텍스트 준비"""
         return self.lexicon_server.execute_tool("get_playbook_context", {"text": text})
     
-    # ========== Legal MCP 도구 (향후) ==========
+
+    # Legal MCP 독립 프로세스 연결 로직 ==========
     
-    def legal_check(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Legal RAG 체크
+    async def _ensure_legal_connected(self):
+        if self._legal_session:
+            return
+
+        async with self._legal_lock:
+            if self._legal_session: return
+
+            try:
+                self._legal_exit_stack = AsyncExitStack()
+                # 서버 프로세스 시작 및 stdio 연결
+                read_stream, write_stream = await self._legal_exit_stack.enter_async_context(
+                    stdio_client(self.legal_server_params)
+                )
+                # 세션 시작
+                self._legal_session = await self._legal_exit_stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                )
+                await self._legal_session.initialize()
+                logger.info("Legal MCP Server 프로세스(Subprocess) 연결 성공")
+            except Exception as e:
+                logger.error(f"❌ Legal MCP 연결 실패: {e}")
+                self._legal_session = None
+                
+    # 서버에 JSON-RPC 요청을 보냄
+    async def _call_legal_tool(self, tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
         
-        사용: legal_result = mcp.legal_check(state)
-              if legal_result['action_required']:
-                  # Legal 대응 필요
-        """
-        if self.legal_server is None:
-            return {"error": "Legal server not initialized", "action_required": False}
-        
-        return self.legal_server.check(context)
+        await self._ensure_legal_connected()
+        if not self._legal_session:
+            return []
+
+        try:
+            result = await self._legal_session.call_tool(tool_name, arguments)
+            if result and result.content:
+                return json.loads(result.content[0].text)
+            return []
+        except Exception as e:
+            logger.error(f"Legal Tool {tool_name} 호출 에러: {e}")
+            return []
+
+    # ========== Legal MCP 도구 ==========
+    
+    async def legal_search_statutes(self, query: str, **kwargs):
+        return await self._call_legal_tool("search-statutes", {"query": query, **kwargs})
+
+    async def legal_search_precedents(self, query: str, **kwargs):
+        return await self._call_legal_tool("search-precedents", {"query": query, **kwargs})
+
+    async def legal_search_policies(self, query: str, **kwargs):
+        return await self._call_legal_tool("search-internal-policy", {"query": query, **kwargs})
+
     
     # ========== 유틸리티 ==========
     
@@ -117,9 +172,13 @@ class MCPClient:
                 "prepare_playbook_context",
             ],
             "legal": [
-                "legal_check"
+                "legal_search_statutes", "legal_search_precedents", "legal_search_policies"
             ]
         }
+    async def close(self):
+        if self._legal_exit_stack:
+            await self._legal_exit_stack.aclose()
+            logger.info("Legal MCP 프로세스 종료됨")
 
 
 # ============================================================
