@@ -1,252 +1,268 @@
 # src/integrations/slack/formatter.py
 
-from typing import Dict, Any, List, Optional
+import os
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
 from src.dolpin_langgraph.state import AnalysisState
+
+# Slack ¸Ş½ÃÁö ±æÀÌ Á¦ÇÑ (°ø½Ä ±ÇÀå°ª)
+MAX_SECTION_TEXT = 900
+MAX_ACTIONS = 3
+DEFAULT_ALLOWED_LINK_HOSTS = {"dashboard.example.com"}
 
 
 def format_to_slack(state: AnalysisState) -> Dict[str, Any]:
     """
-    AnalysisState â†’ Slack Block Kit ë³€í™˜
-    
-    í˜„ì¬: ì™„ì„±ëœ ë…¸ë“œ ë°ì´í„°ë§Œ ë³€í™˜
-    ë¯¸ì™„ì„±: "ë¶„ì„ ì¤‘" ë˜ëŠ” ìƒëµ
-    
-    Args:
-        state: ì „ì²´ ë¶„ì„ ìƒíƒœ
-    
-    Returns:
-        dict: Slack message payload (blocks + text)
+    AnalysisState¸¦ Slack Block Kit payload·Î º¯È¯.
+
+    - ¸ğµç ÅØ½ºÆ®´Â mrkdwn escape Ã³¸®
+    - ¿ÜºÎ ¸µÅ©(dashboard/incident)´Â allowlist °ËÁõ ÈÄ clickable ¸µÅ©·Î
     """
-    
-    blocks = []
-    exec_brief = state.get("executive_brief", {})
-    playbook = state.get("playbook", {})
-    
-    # ===== 1. Header =====
-    situation = exec_brief.get("summary", "ë¶„ì„ ì¤‘")
-    severity_icon = _get_severity_icon(exec_brief.get("severity_score", 5))
-    
-    blocks.append({
-        "type": "header",
-        "text": {
-            "type": "plain_text",
-            "text": f"{severity_icon} DOLPIN ì´ìŠˆ ë¦¬í¬íŠ¸: {situation}"
+    blocks: List[Dict[str, Any]] = []
+    exec_brief = state.get("executive_brief") or {}
+    playbook = state.get("playbook") or {}
+
+    situation_raw = exec_brief.get("summary", "ºĞ¼® Áß")
+    situation = _truncate_for_slack(str(situation_raw), 120)
+    severity_icon = _get_severity_icon(int(exec_brief.get("severity_score", 5)))
+
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"{severity_icon} DOLPIN ÀÌ½´ ¸®Æ÷Æ® | {situation}",
+            },
         }
-    })
-    
-    # ===== 2. ìš”ì•½ ì •ë³´ (Fields) =====
-    blocks.append({
-        "type": "section",
-        "fields": [
-            {
-                "type": "mrkdwn",
-                "text": f"*ìš°ì„ ìˆœìœ„:*\n{_format_priority(playbook.get('priority', 'unknown'))}"
-            },
-            {
-                "type": "mrkdwn",
-                "text": f"*íŠ¸ë Œë“œ:*\n{_format_trend(exec_brief.get('trend_direction', 'stable'))}"
-            },
-            {
-                "type": "mrkdwn",
-                "text": f"*ì´ìŠˆ ì„±ê²©:*\n{_format_polarity(exec_brief.get('issue_polarity', 'mixed'))}"
-            },
-            {
-                "type": "mrkdwn",
-                "text": f"*ì‹¬ê°ë„:*\n{exec_brief.get('severity_score', 5)}/10"
-            }
-        ]
-    })
-    
+    )
+
+    blocks.append(
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*¿ì¼±¼øÀ§:*\n{_format_priority(playbook.get('priority', 'unknown'))}"},
+                {"type": "mrkdwn", "text": f"*Æ®·»µå:*\n{_format_trend(exec_brief.get('trend_direction', 'stable'))}"},
+                {"type": "mrkdwn", "text": f"*ÀÌ½´ ¼º°İ:*\n{_format_polarity(exec_brief.get('issue_polarity', 'mixed'))}"},
+                {"type": "mrkdwn", "text": f"*½É°¢µµ:*\n{int(exec_brief.get('severity_score', 5))}/10"},
+            ],
+        }
+    )
     blocks.append({"type": "divider"})
-    
-    # ===== 3. í˜„ì¬ ìƒí™© (ExecBrief) =====
-    spike_summary = exec_brief.get("spike_summary")
-    if spike_summary:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*ğŸ“Š í˜„ì¬ ìƒí™©*\n{spike_summary}"
-            }
-        })
-    
-    # ===== 4. íŒ¬ ë°˜ì‘ (SentimentAgent) =====
-    sentiment_summary = exec_brief.get("sentiment_summary")
-    if sentiment_summary:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*ğŸ’¬ íŒ¬ ë°˜ì‘*\n{sentiment_summary}"
-            }
-        })
-    
-    # ===== 5. ê¶Œì¥ ì¡°ì¹˜ (PlaybookAgent) =====
-    if playbook and playbook.get("recommended_actions"):
-        actions_text = _format_actions(playbook["recommended_actions"])
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*ğŸ“‹ ê¶Œì¥ ì¡°ì¹˜*\n{actions_text}"
-            }
-        })
-    
-    # ===== 6. ê¸°íšŒ ìš”ì•½ (Opportunityë§Œ) =====
-    opportunity_summary = exec_brief.get("opportunity_summary")
-    if opportunity_summary:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*âœ¨ í™•ì‚° ê¸°íšŒ*\n{opportunity_summary}"
-            }
-        })
-    
-    # ===== 7. ë²•ì  ë¦¬ìŠ¤í¬ (LegalRAG) =====
+
+    _add_mrkdwn_section(blocks, "? ÇöÀç »óÈ²", exec_brief.get("spike_summary"))
+    _add_mrkdwn_section(blocks, "? ÆÒ ¹İÀÀ", exec_brief.get("sentiment_summary"))
+
+    recommended_actions = playbook.get("recommended_actions") or []
+    if recommended_actions:
+        actions_text = _format_actions(recommended_actions)
+        _add_mrkdwn_section(blocks, "? ±ÇÀå Á¶Ä¡", actions_text, already_safe=True)
+
+    _add_mrkdwn_section(blocks, "? È®»ê ±âÈ¸", exec_brief.get("opportunity_summary"))
+
     legal_summary = exec_brief.get("legal_summary")
-    if legal_summary and legal_summary != "ë²•ë¥  ê²€í†  ë¯¸ìˆ˜í–‰":
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*âš–ï¸ ë²•ì  ê²€í† *\n{legal_summary}"
-            }
-        })
-    
-    # ===== 8. ì¸ê³¼ê´€ê³„ (Causality) =====
-    causality = state.get("causality_result")
+    if legal_summary and legal_summary != "¹ı·ü °ËÅä ¹Ì¼öÇà":
+        _add_mrkdwn_section(blocks, "?? ¹ıÀû °ËÅä", legal_summary)
+
+    causality = state.get("causality_result") or {}
     if causality:
-        trigger = causality.get("trigger_source", "unknown")
-        cascade = causality.get("cascade_pattern", "unknown")
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*ğŸ”— í™•ì‚° ê²½ë¡œ*\níŠ¸ë¦¬ê±°: {trigger} | íŒ¨í„´: {cascade}"
-            }
-        })
-    
-    # ===== 9. ì—ëŸ¬ ë©”ì‹œì§€ (ìˆìœ¼ë©´) =====
+        trigger = _escape_mrkdwn_text(str(causality.get("trigger_source", "unknown")))
+        cascade = _escape_mrkdwn_text(str(causality.get("cascade_pattern", "unknown")))
+        _add_mrkdwn_section(blocks, "? È®»ê °æ·Î", f"Æ®¸®°Å: {trigger} | ÆĞÅÏ: {cascade}", already_safe=True)
+
     user_message = exec_brief.get("user_message")
     if user_message:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"âš ï¸ *ì•Œë¦¼*\n{user_message}"
-            }
-        })
-    
-    blocks.append({"type": "divider"})
-    
-    # ===== 10. Footer =====
-    generated_at = exec_brief.get("generated_at", "")
-    duration = exec_brief.get("analysis_duration_seconds", 0)
-    trace_id = state.get("trace_id", "unknown")
-    
-    blocks.append({
-        "type": "context",
-        "elements": [
+        _add_mrkdwn_section(blocks, "?? ¾Ë¸²", user_message)
+
+    link_line = _build_link_line(exec_brief, state)
+    if link_line:
+        blocks.append(
             {
-                "type": "mrkdwn",
-                "text": f"ìƒì„±: {generated_at} | ë¶„ì„ ì‹œê°„: {duration:.1f}ì´ˆ | Trace: `{trace_id[:8]}`"
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": link_line}],
             }
-        ]
-    })
-    
+        )
+
+    blocks.append({"type": "divider"})
+
+    generated_at = _escape_mrkdwn_text(str(exec_brief.get("generated_at", "")))
+    duration = float(exec_brief.get("analysis_duration_seconds", 0.0) or 0.0)
+    trace_id = str(state.get("trace_id", "unknown"))[:8]
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"»ı¼º: {generated_at} | ºĞ¼® ½Ã°£: {duration:.1f}ÃÊ | Trace: `{trace_id}`",
+                }
+            ],
+        }
+    )
+
     return {
         "blocks": blocks,
-        "text": f"DOLPIN ì´ìŠˆ ë¦¬í¬íŠ¸: {situation}"  # fallback
+        "text": f"DOLPIN ÀÌ½´ ¸®Æ÷Æ® | {situation}",
     }
 
 
-# ============================================================
-# í—¬í¼ í•¨ìˆ˜ë“¤
-# ============================================================
+def _add_mrkdwn_section(
+    blocks: List[Dict[str, Any]],
+    title: str,
+    content: Optional[str],
+    *,
+    already_safe: bool = False,
+) -> None:
+    if not content:
+        return
+    body = content if already_safe else _escape_mrkdwn_text(str(content))
+    body = _truncate_for_slack(body, MAX_SECTION_TEXT)
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{title}*\n{body}",
+            },
+        }
+    )
+
+
+def _escape_mrkdwn_text(text: str) -> str:
+    """Slack mrkdwn¿¡¼­ ¾ÈÀüÇÏ°Ô Ç¥½ÃÇÏ±â À§ÇØ Æ¯¼ö¹®ÀÚ escape"""
+    escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    for mention in ("@here", "@channel", "@everyone"):
+        escaped = escaped.replace(mention, f"`{mention}`")
+    return escaped
+
+
+def _truncate_for_slack(text: str, max_len: int) -> str:
+    """ÅØ½ºÆ® ±æÀÌ Á¦ÇÑ (Slack API Á¦ÇÑ ´ëÀÀ)"""
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1] + "¡¦"
+
+
+def _build_link_line(exec_brief: Dict[str, Any], state: AnalysisState) -> str:
+    """´ë½Ãº¸µå/ÀÎ½Ã´øÆ® ¸µÅ© ¶óÀÎ »ı¼º"""
+    links: List[str] = []
+    dashboard = _safe_link(exec_brief.get("dashboard_url"), "´ë½Ãº¸µå")
+    incident = _safe_link(exec_brief.get("incident_url"), "ÀÎ½Ã´øÆ®")
+
+    if dashboard:
+        links.append(dashboard)
+    if incident:
+        links.append(incident)
+
+    trace_id = str(state.get("trace_id", ""))
+    if trace_id:
+        links.append(f"Trace `{trace_id[:8]}`")
+
+    return " | ".join(links)
+
+
+def _safe_link(url: Optional[str], label: str) -> str:
+    """URL °ËÁõ ÈÄ ¾ÈÀüÇÑ Slack ¸µÅ© »ı¼º (allowlist ±â¹İ)"""
+    if not url:
+        return ""
+
+    parsed = urlparse(str(url))
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
+
+    allowlist_raw = os.getenv("SLACK_LINK_ALLOWLIST", "")
+    allowed_hosts = {
+        host.strip().lower()
+        for host in allowlist_raw.split(",")
+        if host.strip()
+    }
+    if not allowed_hosts:
+        allowed_hosts = set(DEFAULT_ALLOWED_LINK_HOSTS)
+
+    host = parsed.netloc.lower()
+    if host not in allowed_hosts:
+        return ""
+
+    safe_label = _escape_mrkdwn_text(label)
+    return f"<{url}|{safe_label}>"
+
 
 def _get_severity_icon(severity_score: int) -> str:
-    """Severity score â†’ ì´ëª¨ì§€"""
     if severity_score >= 8:
-        return "ğŸ”´"
-    elif severity_score >= 6:
-        return "ğŸŸ "
-    elif severity_score >= 4:
-        return "ğŸŸ¡"
-    else:
-        return "ğŸŸ¢"
+        return ":red_circle:"
+    if severity_score >= 6:
+        return ":orange_circle:"
+    if severity_score >= 4:
+        return ":yellow_circle:"
+    return ":green_circle:"
 
 
 def _format_priority(priority: str) -> str:
-    """Priority â†’ í•œê¸€ + ì´ëª¨ì§€"""
     priority_map = {
-        "urgent": "ğŸ”´ ê¸´ê¸‰",
-        "high": "ğŸŸ  ë†’ìŒ",
-        "medium": "ğŸŸ¡ ë³´í†µ",
-        "low": "ğŸŸ¢ ë‚®ìŒ"
+        "urgent": ":red_circle: ±ä±Ş",
+        "high": ":orange_circle: ³ôÀ½",
+        "medium": ":yellow_circle: º¸Åë",
+        "low": ":green_circle: ³·À½",
     }
-    return priority_map.get(priority, "âšª ì•Œ ìˆ˜ ì—†ìŒ")
+    return priority_map.get(priority, "? ¾Ë ¼ö ¾øÀ½")
 
 
 def _format_trend(trend: str) -> str:
-    """Trend direction â†’ í•œê¸€ + ì´ëª¨ì§€"""
     trend_map = {
-        "escalating": "ğŸ“ˆ ì•…í™”",
-        "declining": "ğŸ“‰ ê°œì„ ",
-        "stable": "â¡ï¸ ì•ˆì •"
+        "escalating": ":chart_with_upwards_trend: ¾ÇÈ­",
+        "declining": ":chart_with_downwards_trend: °³¼±",
+        "stable": ":straight_ruler: ¾ÈÁ¤",
     }
-    return trend_map.get(trend, "â¡ï¸ ì•ˆì •")
+    return trend_map.get(trend, ":straight_ruler: ¾ÈÁ¤")
 
 
 def _format_polarity(polarity: str) -> str:
-    """Issue polarity â†’ í•œê¸€ + ì´ëª¨ì§€"""
     polarity_map = {
-        "positive": "ğŸ˜Š ê¸ì •",
-        "negative": "ğŸ˜Ÿ ë¶€ì •",
-        "mixed": "ğŸ˜ í˜¼ì¬"
+        "positive": ":large_green_circle: ±àÁ¤",
+        "negative": ":red_circle: ºÎÁ¤",
+        "mixed": ":large_yellow_circle: È¥Àç",
     }
-    return polarity_map.get(polarity, "ğŸ˜ í˜¼ì¬")
+    return polarity_map.get(polarity, ":large_yellow_circle: È¥Àç")
 
 
-def _format_actions(actions: List[Dict]) -> str:
-    """Actions í¬ë§·íŒ…"""
+def _format_actions(actions: List[Dict[str, Any]]) -> str:
+    """±ÇÀå Á¶Ä¡ ¸ñ·Ï Æ÷¸ËÆÃ"""
     if not actions:
-        return "ê¶Œì¥ ì¡°ì¹˜ ì—†ìŒ"
-    
-    lines = []
-    for i, action in enumerate(actions[:3], 1):  # ìƒìœ„ 3ê°œë§Œ
-        action_type = action.get("action", "unknown")
-        description = action.get("description", "")
-        urgency = action.get("urgency", "medium")
-        
+        return "±ÇÀå Á¶Ä¡ ¾øÀ½"
+
+    lines: List[str] = []
+    for i, action in enumerate(actions[:MAX_ACTIONS], 1):
+        action_type = str(action.get("action", "unknown"))
+        description = str(action.get("description", "")).strip()
+        urgency = str(action.get("urgency", "medium"))
+
         urgency_icon = {
-            "immediate": "ğŸ”´",
-            "urgent": "ğŸ”´",
-            "high": "ğŸŸ ",
-            "medium": "ğŸŸ¡",
-            "low": "ğŸŸ¢"
-        }.get(urgency, "âšª")
-        
-        # descriptionì´ ìˆìœ¼ë©´ ì‚¬ìš©, ì—†ìœ¼ë©´ action_type ì‚¬ìš©
+            "immediate": ":red_circle:",
+            "urgent": ":red_circle:",
+            "high": ":orange_circle:",
+            "medium": ":yellow_circle:",
+            "low": ":green_circle:",
+        }.get(urgency, ":white_circle:")
+
         if description:
-            lines.append(f"{urgency_icon} {i}. {description}")
+            text = _escape_mrkdwn_text(_truncate_for_slack(description, 180))
         else:
-            # action_typeì„ í•œê¸€ë¡œ ë§¤í•‘
-            action_text = _translate_action_type(action_type)
-            lines.append(f"{urgency_icon} {i}. {action_text}")
-    
+            text = _escape_mrkdwn_text(_translate_action_type(action_type))
+        lines.append(f"{urgency_icon} {i}. {text}")
+
     return "\n".join(lines)
 
 
 def _translate_action_type(action_type: str) -> str:
-    """Action type â†’ í•œê¸€"""
+    """Action typeÀ» ÇÑ±Û·Î ¹ø¿ª"""
     action_map = {
-        "issue_statement": "ê³µì‹ ì…ì¥ë¬¸ ë°œí‘œ",
-        "amplify_viral": "ê¸ì • ë°”ì´ëŸ´ í™•ì‚°",
-        "legal_response": "ë²•ì  ëŒ€ì‘",
-        "monitor_only": "ëª¨ë‹ˆí„°ë§ ì§€ì†",
-        "engage_influencers": "í—ˆë¸Œ ê³„ì • í˜‘ë ¥",
-        "internal_review": "ë‚´ë¶€ ì¡°ì‚¬",
-        "prepare_communication": "ì»¤ë®¤ë‹ˆì¼€ì´ì…˜ ì¤€ë¹„"
+        "issue_statement": "°ø½Ä ÀÔÀå¹® ¹ßÇ¥",
+        "amplify_viral": "±àÁ¤ ¹ÙÀÌ·² È®»ê",
+        "legal_response": "¹ıÀû ´ëÀÀ ÁØºñ",
+        "monitor_only": "¸ğ´ÏÅÍ¸µ Áö¼Ó",
+        "engage_influencers": "Çãºê °èÁ¤ Çù·Â",
+        "internal_review": "³»ºÎ Á¶»ç ½ÃÀÛ",
+        "prepare_communication": "Ä¿¹Â´ÏÄÉÀÌ¼Ç ÁØºñ",
     }
     return action_map.get(action_type, action_type)
