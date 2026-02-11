@@ -592,27 +592,33 @@ def playbook_node(state: AnalysisState) -> AnalysisState:
 # ============================================================
 
 def exec_brief_node(state: AnalysisState) -> AnalysisState:
-    """브리핑 생성 노드"""
+    """ExecBrief 노드 - Slack 전송을 위한 리포트 생성"""
     _ensure_state_collections(state)
 
     try:
-        workflow_start = datetime.fromisoformat(state["workflow_start_time"].replace("Z", "+00:00"))
-        duration = (datetime.now(workflow_start.tzinfo) - workflow_start).total_seconds()
+        workflow_start_raw = state.get("workflow_start_time")
+        duration = 0.0
+        if workflow_start_raw:
+            workflow_start = datetime.fromisoformat(workflow_start_raw.replace("Z", "+00:00"))
+            duration = (datetime.now(workflow_start.tzinfo) - workflow_start).total_seconds()
 
-        # 각 섹션 요약 생성
         spike_summary = _generate_spike_summary(state)
         sentiment_summary = _generate_sentiment_summary(state)
         legal_summary = _generate_legal_summary(state)
         action_summary = _generate_action_summary(state)
         opportunity_summary = _generate_opportunity_summary(state)
 
-        # 분석 상태 확인
+        playbook = state.get("playbook") or {}
+        playbook_status = "failed"
+        if playbook:
+            playbook_status = "success" if playbook.get("recommended_actions") else "partial"
+
         analysis_status = {
             "spike_analyzer": "success" if state.get("spike_analysis") else "failed",
             "sentiment": "success" if state.get("sentiment_result") else "failed",
             "causality": "success" if state.get("causality_result") else "skipped",
             "legal_rag": "success" if state.get("legal_risk") else "skipped",
-            "playbook": "success" if state.get("playbook") else "failed"
+            "playbook": playbook_status,
         }
 
         user_message = "일부 분석이 제한적으로 제공됩니다." if state.get("error_logs") else None
@@ -620,8 +626,6 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         spike_analysis = state.get("spike_analysis") or {}
         spike_nature = spike_analysis.get("spike_nature", "neutral")
 
-        # Severity score 계산
-        playbook = state.get("playbook") or {}
         priority_map = {"urgent": 10, "high": 7, "medium": 5, "low": 3}
         severity_score = priority_map.get(playbook.get("priority", "low"), 5)
 
@@ -630,10 +634,10 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         trend_map = {"worsening": "escalating", "improving": "declining", "stable": "stable"}
         trend_direction = trend_map.get(sentiment_shift, "stable")
 
-        keyword = state["spike_event"]["keyword"]
-        summary = f"{keyword} - {spike_nature} 이슈 ({playbook.get('situation_type', 'monitoring')})"
+        spike_event = state.get("spike_event") or {}
+        keyword = spike_event.get("keyword", "unknown")
+        summary = f"{keyword} - {spike_nature} ?? ({playbook.get('situation_type', 'monitoring')})"
 
-        # ExecBrief 생성
         state["executive_brief"] = {
             "summary": summary,
             "severity_score": severity_score,
@@ -647,31 +651,35 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
             "analysis_status": analysis_status,
             "user_message": user_message,
             "generated_at": _utcnow_z(),
-            "analysis_duration_seconds": round(duration, 2)
+            "analysis_duration_seconds": round(duration, 2),
+            "dashboard_url": state.get("dashboard_url"),
+            "incident_url": state.get("incident_url"),
         }
 
         _update_node_insight(state, "exec_brief", "generated")
 
-        # Bot Token이 있으면 자동 전송
-        if os.getenv("SLACK_BOT_TOKEN"):
+        bot_token = os.getenv("SLACK_BOT_TOKEN")
+        channel_id = os.getenv("SLACK_CHANNEL_ID")
+        if bot_token and channel_id:
             try:
                 from src.integrations.slack import format_to_slack, send_to_slack
-                
+
                 logger.info("Slack 전송 중...")
                 slack_message = format_to_slack(state)
                 success = send_to_slack(slack_message)
                 if success:
                     logger.info("Slack 전송 완료")
                 else:
-                    logger.warning("Slack 전송 실패") # 워크플로우 계속 진행하도록 경고 로그만 남김
-                
+                    logger.warning("Slack 전송 실패")
             except Exception as e:
-                logger.warning(f"Slack 전송 오류: {e}") # 워크플로우 계속 진행하도록 경고 로그만 남김
-        
+                logger.warning(f"Slack 전송 실패: {e}")
+        elif bot_token and not channel_id:
+            logger.warning("SLACK CHANNEL ID와 토큰을 확인하세요.")
+
         return state
 
     except Exception as e:
-        _add_error_log(state, "exec_brief", "exception", f"ExecBrief 생성 에러: {str(e)}")
+        _add_error_log(state, "exec_brief", "exception", f"ExecBrief ?? ??: {str(e)}")
         state["executive_brief"] = {
             "summary": "분석 실패",
             "severity_score": 5,
@@ -687,11 +695,11 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
                 "sentiment": "failed",
                 "causality": "failed",
                 "legal_rag": "failed",
-                "playbook": "failed"
+                "playbook": "failed",
             },
             "user_message": "분석 중 오류가 발생했습니다.",
             "generated_at": _utcnow_z(),
-            "analysis_duration_seconds": 0.0
+            "analysis_duration_seconds": 0.0,
         }
         _update_node_insight(state, "exec_brief", "failed")
         return state
