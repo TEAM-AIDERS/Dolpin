@@ -17,6 +17,7 @@ import json
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 # 프로젝트 루트를 PYTHONPATH에 추가
 project_root = Path(__file__).parent.parent.parent
@@ -315,46 +316,53 @@ def run_test_case_3_sentiment_only():
     
     # TODO: nodes.py의 spike_analyzer_node Stub 수정 필요
     # actionability_score를 0.2로 설정
-    initial_state["spike_analysis"] = {
-        "is_significant": True,
-        "spike_rate": 2.0,
-        "spike_type": "organic",
-        "spike_nature": "positive",
-        "peak_timestamp": "2026-01-10T10:30:00Z",
-        "duration_minutes": 30,
-        "confidence": 0.9,
-        "actionability_score": 0.2,  # 핵심: 낮은 actionability
-        "data_completeness": "confirmed",
-        "partial_data_warning": None,
-        "viral_indicators": {
-            "is_trending": False,
-            "has_breakout": False,
-            "max_rise_rate": "+20%",
-            "breakout_queries": [],
-            "cross_platform": ["twitter"],
-            "international_reach": 0.1
+    
+    def mock_spike_node(state):
+        state["spike_analysis"] = {
+            "is_significant": True,
+            "spike_rate": 2.0,
+            "spike_type": "organic",
+            "spike_nature": "positive",
+            "peak_timestamp": "2026-01-10T10:30:00Z",
+            "duration_minutes": 30,
+            "confidence": 0.9,
+            "actionability_score": 0.2,  # 핵심: 낮은 actionability
+            "data_completeness": "confirmed",
+            "partial_data_warning": None,
+            "viral_indicators": {
+                "is_trending": False,
+                "has_breakout": False,
+                "max_rise_rate": "+20%",
+                "breakout_queries": [],
+                "cross_platform": ["twitter"],
+                "international_reach": 0.1
+            }
         }
-    }
+        return state
 
-    # 테스트용
-    initial_state["sentiment_result"] = {
-        "dominant_sentiment": "support",
-        "sentiment_distribution": {
-            "support": 0.8,
-            "neutral": 0.2
-        },
-        "confidence": 0.85,
-        "sentiment_shift": "stable",
-        "analyzed_count": 10,
-        "representative_messages": {
-            "support": ["에스파 진짜 예쁘다 ㅠㅠ"]
+    def mock_sentiment_node(state):
+        state["sentiment_result"] = {
+            "dominant_sentiment": "support",
+            "sentiment_distribution": {
+                "support": 0.8,
+                "neutral": 0.2
+            },
+            "confidence": 0.85,
+            "sentiment_shift": "stable",
+            "analyzed_count": 10,
+            "representative_messages": {
+                "support": ["에스파 진짜 예쁘다 ㅠㅠ"]
+            }
         }
-    }
+        return state
 
-    app = compile_workflow()
-    final_state = app.invoke(initial_state)
+    with patch("src.dolpin_langgraph.nodes.spike_analyzer_node", mock_spike_node), \
+         patch("src.dolpin_langgraph.nodes.sentiment_node", mock_sentiment_node):
 
-    print_state_summary(final_state)
+        app = compile_workflow()
+        final_state = app.invoke(initial_state)
+
+        print_state_summary(final_state)
     
     assert final_state["route1_decision"] == "analyze", \
         "Router 1차는 analyze여야 함"
@@ -396,51 +404,57 @@ def run_test_case_4_legal_crisis():
     # TODO: nodes.py Stub 수정 필요
     # spike_analyzer_node: spike_nature="negative", actionability_score=0.5
     # sentiment_node: boycott=0.3
-     
-    #테스트용
-    initial_state["sentiment_result"] = {
-        "dominant_sentiment": "boycott",
-        "sentiment_distribution": {
-            "boycott": 0.3,
-            "support": 0.2,
-            "neutral": 0.3,
-            "fanwar": 0.0,
-            "disappointment": 0.2
-        },
-        "confidence": 0.85,
-        "sentiment_shift": "worsening",
-        "analyzed_count": 50,
-        "has_mixed_sentiment": True,
-        "representative_messages": {
-            "boycott": ["이번 활동은 불매한다"]
+
+    def mock_spike_node(state):
+        state["spike_analysis"] = {
+            "is_significant": True,
+            "spike_rate": 2.5,
+            "spike_type": "organic",
+            "spike_nature": "negative",   # 위기
+            "peak_timestamp": "2026-01-10T10:30:00Z",
+            "duration_minutes": 60,
+            "confidence": 0.9,
+            "actionability_score": 0.5,   # 중간 구간
+            "data_completeness": "confirmed",
+            "partial_data_warning": None,
+            "viral_indicators": {
+                "is_trending": True,
+                "has_breakout": False,
+                "max_rise_rate": "+150%",
+                "breakout_queries": [],
+                "cross_platform": ["twitter"],
+                "international_reach": 0.2
+            }
         }
-    }
+        return state
 
-    initial_state["spike_analysis"] = {
-        "is_significant": True,
-        "spike_rate": 2.5,
-        "spike_type": "organic",
-        "spike_nature": "negative",   # 위기
-        "peak_timestamp": "2026-01-10T10:30:00Z",
-        "duration_minutes": 60,
-        "confidence": 0.9,
-        "actionability_score": 0.5,   # 중간 구간
-        "data_completeness": "confirmed",
-        "partial_data_warning": None,
-        "viral_indicators": {
-            "is_trending": True,
-            "has_breakout": False,
-            "max_rise_rate": "+150%",
-            "breakout_queries": [],
-            "cross_platform": ["twitter"],
-            "international_reach": 0.2
+    def mock_sentiment_node(state):
+        state["sentiment_result"] = {
+            "dominant_sentiment": "boycott",
+            "sentiment_distribution": {
+                "boycott": 0.3,
+                "support": 0.2,
+                "neutral": 0.3,
+                "fanwar": 0.0,
+                "disappointment": 0.2
+            },
+            "confidence": 0.85,
+            "sentiment_shift": "worsening",
+            "analyzed_count": 50,
+            "has_mixed_sentiment": True,
+            "representative_messages": {
+                "boycott": ["이번 활동은 불매한다"]
+            }
         }
-    }
+        return state
 
-    app = compile_workflow()
-    final_state = app.invoke(initial_state)
+    with patch("src.dolpin_langgraph.nodes.spike_analyzer_node", mock_spike_node), \
+         patch("src.dolpin_langgraph.nodes.sentiment_node", mock_sentiment_node):
 
-    print_state_summary(final_state)
+        app = compile_workflow()
+        final_state = app.invoke(initial_state)
+
+        print_state_summary(final_state)
 
     assert final_state["route2_decision"] == "full_analysis", \
         "Router 2차가 full_analysis여야 함"
@@ -493,51 +507,57 @@ def run_test_case_5_legal_keyword():
     # TODO: nodes.py Stub 수정 필요
     # sentiment_node: dominant_sentiment="meme_negative"
     # legal_rag_node: clearance_status="high_risk"
-    
-    #테스트용
-    initial_state["sentiment_result"] = {
-        "dominant_sentiment": "meme_negative",
-        "sentiment_distribution": {
-            "meme_negative": 0.4,
-            "support": 0.2,
-            "neutral": 0.3,
-            "boycott": 0.0,
-            "fanwar": 0.0
-        },
-        "confidence": 0.8,
-        "sentiment_shift": "worsening",
-        "analyzed_count": 40,
-        "has_mixed_sentiment": True,
-        "representative_messages": {
-            "meme_negative": ["이건 진짜 명예훼손이다"]
-        }
-    }
-    
-    # SpikeAnalyzer 결과 강제 세팅
-    initial_state["spike_analysis"] = {
-        "is_significant": True,
-        "spike_rate": 2.8,
-        "spike_type": "organic",
-        "spike_nature": "negative",
-        "peak_timestamp": "2026-01-10T10:30:00Z",
-        "duration_minutes": 45,
-        "confidence": 0.9,
-        "actionability_score": 0.6,  # full_analysis 유도
-        "data_completeness": "confirmed",
-        "partial_data_warning": None,
-        "viral_indicators": {
-            "is_trending": True,
-            "has_breakout": False,
-            "max_rise_rate": "+180%",
-            "breakout_queries": [],
-            "cross_platform": ["twitter"],
-            "international_reach": 0.1
-        }
-    }
-    app = compile_workflow()
-    final_state = app.invoke(initial_state)
 
-    print_state_summary(final_state)
+    def mock_spike_node(state):
+        state["spike_analysis"] = {
+            "is_significant": True,
+            "spike_rate": 2.8,
+            "spike_type": "organic",
+            "spike_nature": "negative",
+            "peak_timestamp": "2026-01-10T10:30:00Z",
+            "duration_minutes": 45,
+            "confidence": 0.9,
+            "actionability_score": 0.6,  # full_analysis 유도
+            "data_completeness": "confirmed",
+            "partial_data_warning": None,
+            "viral_indicators": {
+                "is_trending": True,
+                "has_breakout": False,
+                "max_rise_rate": "+180%",
+                "breakout_queries": [],
+                "cross_platform": ["twitter"],
+                "international_reach": 0.1
+            }
+        }
+        return state
+
+    def mock_sentiment_node(state):
+        state["sentiment_result"] = {
+            "dominant_sentiment": "meme_negative",
+            "sentiment_distribution": {
+                "meme_negative": 0.4,
+                "support": 0.2,
+                "neutral": 0.3,
+                "boycott": 0.0,
+                "fanwar": 0.0
+            },
+            "confidence": 0.8,
+            "sentiment_shift": "worsening",
+            "analyzed_count": 40,
+            "has_mixed_sentiment": True,
+            "representative_messages": {
+                "meme_negative": ["이건 진짜 명예훼손이다"]
+            }
+        }
+        return state
+
+    with patch("src.dolpin_langgraph.nodes.spike_analyzer_node", mock_spike_node), \
+         patch("src.dolpin_langgraph.nodes.sentiment_node", mock_sentiment_node):
+
+        app = compile_workflow()
+        final_state = app.invoke(initial_state)
+    
+        print_state_summary(final_state)
 
     assert final_state["route2_decision"] == "full_analysis", \
         "Router 2차가 full_analysis여야 함"
@@ -569,13 +589,13 @@ def main():
     if result2:
         save_result_to_file(result2, "mock_result_case2_skip.json")
     
-    # 테스트 케이스 3: Sentiment Only (TODO)
+    # 테스트 케이스 3: Sentiment Only
     run_test_case_3_sentiment_only()
     
-    # 테스트 케이스 4: Legal - Crisis (TODO)
+    # 테스트 케이스 4: Legal - Crisis 
     run_test_case_4_legal_crisis()
     
-    # 테스트 케이스 5: Legal - Keyword (TODO)
+    # 테스트 케이스 5: Legal - Keyword
     run_test_case_5_legal_keyword()
     
     print("\n" + "="*80)
