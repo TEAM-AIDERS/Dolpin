@@ -478,24 +478,51 @@ def legal_rag_node(state: AnalysisState) -> AnalysisState:
         # result = legal_rag.check_legal_risk(query_context)
         
         # ============================================================
-        # Stub: 더미 데이터 (개발 초기용)
+        # Stub: 조건 분기 포함 (개발 초기용)
         # ============================================================
-        result = {
-            "overall_risk_level": "low",
-            "clearance_status": "clear",
-            "confidence": 0.95,
-            "rag_required": False,
-            "rag_performed": False,
-            "rag_confidence": None,
-            "risk_assessment": None,
-            "recommended_action": [],
-            "referenced_documents": [],
-            "signals": {
-                "legal_keywords_detected": False,
-                "matched_keywords": [],
-                "reason": "none"
+        sentiment = state.get("sentiment_result", {})
+        spike_event = state.get("spike_event", {})
+        messages = [m.get("text", "") for m in spike_event.get("messages", [])]
+
+        high_risk_detected = (
+            sentiment.get("dominant_sentiment") in ["meme_negative", "boycott"]
+            or any("명예훼손" in msg for msg in messages)
+        )
+
+        if high_risk_detected:
+            result = {
+                "overall_risk_level": "high",
+                "clearance_status": "high_risk",
+                "confidence": 0.9,
+                "rag_required": True,
+                "rag_performed": True,
+                "rag_confidence": 0.88,
+                "risk_assessment": "명예훼손/보이콧 등 법적 리스크 신호 감지",
+                "recommended_action": ["법무팀 검토 필요"],
+                "referenced_documents": [],
+                "signals": {
+                    "legal_keywords_detected": True,
+                    "matched_keywords": ["명예훼손"] if any("명예훼손" in msg for msg in messages) else [],
+                    "reason": "위험 신호 감지"
+                }
             }
-        }
+        else:
+            result = {
+                "overall_risk_level": "low",
+                "clearance_status": "clear",
+                "confidence": 0.95,
+                "rag_required": False,
+                "rag_performed": False,
+                "rag_confidence": None,
+                "risk_assessment": None,
+                "recommended_action": [],
+                "referenced_documents": [],
+                "signals": {
+                    "legal_keywords_detected": False,
+                    "matched_keywords": [],
+                    "reason": "none"
+                }
+            }
         
         # State 업데이트
         state["legal_risk"] = result
