@@ -362,7 +362,7 @@ def run_test_case_3_sentiment_only():
         app = compile_workflow()
         final_state = app.invoke(initial_state)
 
-        print_state_summary(final_state)
+    print_state_summary(final_state)
     
     assert final_state["route1_decision"] == "analyze", \
         "Router 1차는 analyze여야 함"
@@ -454,7 +454,7 @@ def run_test_case_4_legal_crisis():
         app = compile_workflow()
         final_state = app.invoke(initial_state)
 
-        print_state_summary(final_state)
+    print_state_summary(final_state)
 
     assert final_state["route2_decision"] == "full_analysis", \
         "Router 2차가 full_analysis여야 함"
@@ -557,7 +557,7 @@ def run_test_case_5_legal_keyword():
         app = compile_workflow()
         final_state = app.invoke(initial_state)
     
-        print_state_summary(final_state)
+    print_state_summary(final_state)
 
     assert final_state["route2_decision"] == "full_analysis", \
         "Router 2차가 full_analysis여야 함"
