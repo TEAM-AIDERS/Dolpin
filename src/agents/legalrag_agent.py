@@ -120,12 +120,19 @@ class LegalRAGAgent:
     # Resource Prompt 기반 반복 검색
     async def _perform_agentic_search(self, context: LegalRAGInput, signals: dict) -> List[Dict]:
         max_iterations = 3
-        collected_info = []
+        collected_dict = {}
         # 검색 계획 수립 
         planner_prompt = ChatPromptTemplate.from_template("""
         당신은 '법률 조사 에이전트'입니다. 현재 상황에 가장 적합한 도구를 선택하여 검색하세요.
         (반복: {iteration}/{max_iterations})
 
+        [입력 상황]
+        - 키워드: {keyword}
+        - spike 성격: {nature}
+        - 주요 감정: {sentiment}
+        - 탐지된 법적 신호: {signals}
+        - 현재까지 확보된 정보 요약: {collected_summary}
+        
         [사용 가능한 MCP 도구]
         1. search_statutes: 저작권법, 상표법 등 '성문법' 근거가 필요할 때 사용.
         2. search_precedents: 한국저작권위원회 등의 '실제 판례 및 상담 사례'가 필요할 때 사용.
@@ -141,7 +148,7 @@ class LegalRAGAgent:
         planner_chain = planner_prompt | self.planner_llm
 
         for i in range(max_iterations):
-            summary = str([item.get('content', '')[:50] for item in collected_info]) if collected_info else "없음"
+            summary = str([item.get('content', '')[:50] for item in collected_dict.values()]) if collected_dict.values() else "없음"
             
             response = await planner_chain.ainvoke({
                 "keyword": context.get('keyword', ''),
@@ -176,14 +183,16 @@ class LegalRAGAgent:
                         continue
 
                     if results:
-                        # 출처 정보 추가 
-                        for r in results: r['source_type'] = tool_part
-                        collected_info.extend(results) # Agent의 작업 메모리다.
+                        # 중복 제거 로직: title이 같으면 덮어씌워 고유 문서만 유지
+                        for r in results:
+                            r['source_type'] = tool_part
+                            doc_key = r.get('title', r.get('content', '')[:30])
+                            collected_dict[doc_key] = r
                         
                 except Exception as e:
                     logger.error(f"   -> MCP 호출 실패 ({decision}): {e}")
         
-        return collected_info
+        return list(collected_dict.values())
     
     # 최종 리포트 생성 단계 
     # 검색 결과 → LLM 판단 → 시스템이 신뢰도 계산 → 최종 출력
