@@ -170,7 +170,7 @@ class LegalRAGAgent:
                     elif tool_part == "search_precedents":
                         results = await self.mcp.legal_search_precedents(query=query_text)
                     elif tool_part == "search_internal_policy":
-                        results = await self.mcp.legal_search_internal_policy(query=query_text)
+                        results = await self.mcp.legal_search_policies(query=query_text)
                     else:
                         logger.warning(f"알 수 없는 도구 요청: {tool_part}")
                         continue
@@ -227,5 +227,5 @@ class LegalRAGAgent:
             result.rag_confidence = llm_qualitative_score # (rag_confidence는 LLM 점수 그대로 유지)
         return result
     
-    async def check_legal_risk(query_context: LegalRAGInput) -> LegalRiskResult:
-        return await LegalRAGAgent().check_legal_risk(query_context)
+async def check_legal_risk(query_context: LegalRAGInput) -> LegalRiskResult:
+    return await LegalRAGAgent().check_legal_risk(query_context)
