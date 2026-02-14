@@ -9,6 +9,7 @@ LangGraph 노드 래퍼 함수
 """
 
 import logging, os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
@@ -67,6 +68,14 @@ def _update_node_insight(state: AnalysisState, node_id: str, insight: str) -> No
 
 def _utcnow_z() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resolve_existing_path(candidates: list[str]) -> Optional[str]:
+    for candidate in candidates:
+        raw = str(candidate or "").strip()
+        if raw and Path(raw).exists():
+            return raw
+    return None
 
 
 
@@ -284,14 +293,53 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             _update_node_insight(state, "sentiment", "텍스트가 비어 있음")
             return state
 
-        MODEL_PATH = state.get("sentiment_model_path", "models/sentiment_model")
-        LEXICON_PATH = state.get("lexicon_path", "custom_lexicon.csv")
-        DEVICE = state.get("device", "cpu")
+        model_path_from_state = str(state.get("sentiment_model_path", "") or "").strip()
+        model_path_from_env = str(os.getenv("SENTIMENT_MODEL_PATH", "") or "").strip()
+        model_path = _resolve_existing_path(
+            [
+                model_path_from_state,
+                model_path_from_env,
+                "models/sentiment_model",
+                "sentiment_ft",
+            ]
+        ) or model_path_from_state or model_path_from_env or "models/sentiment_model"
+
+        lexicon_path_from_state = str(state.get("lexicon_path", "") or "").strip()
+        lexicon_path = _resolve_existing_path(
+            [
+                lexicon_path_from_state,
+                "custom_lexicon.csv",
+            ]
+        ) or lexicon_path_from_state or "custom_lexicon.csv"
+
+        device = str(state.get("device", "cpu") or "cpu")
 
         try:
-            agent = build_sentiment_agent(MODEL_PATH, LEXICON_PATH, DEVICE)
+            agent = build_sentiment_agent(model_path, lexicon_path, device)
         except Exception as e:
-            logger.error(f"SentimentAgent 초기화 실패: {e}")
+            logger.error(
+                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | "
+                "lexicon_path=%s (exists=%s) | device=%s",
+                e,
+                model_path,
+                Path(model_path).exists(),
+                lexicon_path,
+                Path(lexicon_path).exists(),
+                device,
+            )
+            _add_error_log(
+                state,
+                stage="sentiment",
+                error_type="exception",
+                message=f"sentiment init failed: {e}",
+                details={
+                    "model_path": model_path,
+                    "model_exists": Path(model_path).exists(),
+                    "lexicon_path": lexicon_path,
+                    "lexicon_exists": Path(lexicon_path).exists(),
+                    "device": device,
+                },
+            )
             state["sentiment_result"] = None
             _update_node_insight(state, "sentiment", "모델 초기화 실패")
             return state
