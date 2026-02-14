@@ -1,4 +1,4 @@
-"""
+﻿"""
 LangGraph 노드 래퍼 함수
 각 에이전트를 호출하고 State를 업데이트합니다.
 
@@ -85,38 +85,144 @@ def _resolve_existing_path(candidates: list[str]) -> Optional[str]:
 
 def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
     """
-    급등 분석 노드 (현재 stub)
-    TODO: spike analyzer 실제 연결 시 교체
+    급등 분석 노드
+    - spike_event 기반으로 significance/viral/actionability 계산
+    - 임계값 override 지원:
+      - significant_spike_threshold (default: 2.0)
+      - breakout_spike_threshold (default: 3.0)
     """
     _ensure_state_collections(state)
 
     try:
-        # Stub: 더미 데이터
-        spike_event = state["spike_event"]
+        spike_event = state.get("spike_event") or {}
+        messages = spike_event.get("messages", []) or []
+        keyword = str(spike_event.get("keyword", "unknown"))
+
+        baseline = int(spike_event.get("baseline", 0) or 0)
+        current_volume = int(spike_event.get("current_volume", 0) or 0)
+        spike_rate_raw = float(spike_event.get("spike_rate", 0.0) or 0.0)
+        if spike_rate_raw <= 0 and baseline > 0 and current_volume > 0:
+            spike_rate_raw = current_volume / baseline
+        spike_rate = round(float(spike_rate_raw), 2)
+
+        sig_threshold = float(state.get("significant_spike_threshold", 2.0) or 2.0)
+        breakout_threshold = float(state.get("breakout_spike_threshold", 3.0) or 3.0)
+        is_significant = spike_rate >= sig_threshold
+        has_breakout = spike_rate >= breakout_threshold
+
+        source_set = {str((m or {}).get("source", "")).strip() for m in messages if (m or {}).get("source")}
+        cross_platform = sorted(source_set)
+
+        engagement_sum = 0
+        for msg in messages:
+            metrics = (msg or {}).get("metrics", {}) or {}
+            engagement_sum += int(metrics.get("likes", 0) or 0)
+            engagement_sum += int(metrics.get("retweets", 0) or 0)
+            engagement_sum += int(metrics.get("replies", 0) or 0)
+
+        non_ko_count = 0
+        for msg in messages:
+            lang = str((msg or {}).get("detected_language", "")).lower().strip()
+            if lang and lang not in ("ko", "kr"):
+                non_ko_count += 1
+        international_reach = round(non_ko_count / max(1, len(messages)), 2)
+
+        positive_cues = ("좋", "최고", "감사", "응원", "축하", "사랑", "행복", "대박")
+        negative_cues = ("불매", "보이콧", "실망", "화나", "논란", "문제", "싫", "최악", "탈덕")
+        positive_hits = 0
+        negative_hits = 0
+        for msg in messages:
+            text = str((msg or {}).get("text", "")).lower()
+            if any(cue in text for cue in positive_cues):
+                positive_hits += 1
+            if any(cue in text for cue in negative_cues):
+                negative_hits += 1
+
+        if positive_hits > 0 and negative_hits > 0:
+            spike_nature = "mixed"
+        elif negative_hits > positive_hits:
+            spike_nature = "negative"
+        elif positive_hits > 0:
+            spike_nature = "positive"
+        else:
+            spike_nature = "neutral"
+
+        timestamp_candidates = []
+        for msg in messages:
+            ts = (msg or {}).get("timestamp")
+            if ts:
+                timestamp_candidates.append(str(ts))
+        detected_at = spike_event.get("detected_at")
+        if detected_at:
+            timestamp_candidates.append(str(detected_at))
+        peak_timestamp = max(timestamp_candidates) if timestamp_candidates else _utcnow_z()
+
+        duration_minutes = 0
+        if len(messages) >= 2:
+            parsed = []
+            for msg in messages:
+                ts = (msg or {}).get("timestamp")
+                if not ts:
+                    continue
+                try:
+                    parsed.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")))
+                except Exception:
+                    continue
+            if len(parsed) >= 2:
+                duration_minutes = int((max(parsed) - min(parsed)).total_seconds() / 60)
+
+        actionability_score = (
+            0.45 * min(1.0, spike_rate / 5.0)
+            + 0.25 * min(1.0, len(messages) / 50.0)
+            + 0.20 * (1.0 if has_breakout else 0.0)
+            + 0.10 * min(1.0, len(cross_platform) / 3.0)
+        )
+        actionability_score = round(max(0.0, min(1.0, actionability_score)), 2)
+
+        confidence = (
+            0.50
+            + 0.20 * min(1.0, len(messages) / 30.0)
+            + 0.20 * (1.0 if baseline > 0 and current_volume > 0 else 0.0)
+            + 0.10 * min(1.0, len(cross_platform) / 2.0)
+        )
+        confidence = round(max(0.0, min(1.0, confidence)), 2)
+
+        data_completeness = "confirmed" if (baseline > 0 and current_volume > 0 and messages) else "partial"
+        partial_data_warning = None
+        if data_completeness != "confirmed":
+            partial_data_warning = "incomplete spike_event fields"
+
+        max_rise_rate = "Breakout" if has_breakout else f"+{max(0.0, (spike_rate - 1.0) * 100):.0f}%"
+        breakout_queries = [keyword] if has_breakout and keyword != "unknown" else []
+        is_trending = has_breakout or len(cross_platform) >= 2
+
         result = {
-            "is_significant": True,
-            "spike_rate": 3.5,
+            "is_significant": is_significant,
+            "spike_rate": spike_rate,
             "spike_type": "organic",
-            "spike_nature": "positive",
-            "peak_timestamp": "2026-01-10T10:30:00Z",
-            "duration_minutes": 60,
-            "confidence": 0.85,
-            "actionability_score": 0.7,
-            "data_completeness": "confirmed",
-            "partial_data_warning": None,
+            "spike_nature": spike_nature,
+            "peak_timestamp": peak_timestamp,
+            "duration_minutes": duration_minutes,
+            "confidence": confidence,
+            "actionability_score": actionability_score,
+            "data_completeness": data_completeness,
+            "partial_data_warning": partial_data_warning,
             "viral_indicators": {
-                "is_trending": True,
-                "has_breakout": True,
-                "max_rise_rate": "Breakout",
-                "breakout_queries": ["뉴진스 컴백"],
-                "cross_platform": ["twitter", "google_trends"],
-                "international_reach": 0.3
+                "is_trending": is_trending,
+                "has_breakout": has_breakout,
+                "max_rise_rate": max_rise_rate,
+                "breakout_queries": breakout_queries,
+                "cross_platform": cross_platform,
+                "international_reach": international_reach
             }
         }
 
         state["spike_analysis"] = result
 
-        insight = f"{result['spike_rate']}배 급등, {result['spike_nature']} 바이럴"
+        insight = (
+            f"{result['spike_rate']}x spike, nature={result['spike_nature']}, "
+            f"actionability={result['actionability_score']}, engagement={engagement_sum}"
+        )
         if result.get("partial_data_warning"):
             insight += f", {result['partial_data_warning']}"
         _update_node_insight(state, "spike_analyzer", insight)
@@ -156,9 +262,6 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
         }
         _update_node_insight(state, "spike_analyzer", "급등 분석 중 오류가 발생했습니다.")
         return state
-
-
-# ============================================================
 # router1
 # ============================================================
 
@@ -807,3 +910,4 @@ def _generate_opportunity_summary(state: AnalysisState) -> Optional[str]:
     if not opportunities:
         return None
     return ", ".join(opportunities[:2])
+
