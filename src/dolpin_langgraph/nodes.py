@@ -78,6 +78,25 @@ def _resolve_existing_path(candidates: list[str]) -> Optional[str]:
     return None
 
 
+def _should_hard_fail(state: AnalysisState, stage: str) -> bool:
+    raw = state.get("hard_fail_stages")
+    if isinstance(raw, (list, tuple, set)):
+        stages = {str(v).strip() for v in raw if str(v).strip()}
+    else:
+        env_raw = os.getenv("DOLPIN_HARD_FAIL_STAGES", "")
+        stages = {s.strip() for s in env_raw.split(",") if s.strip()}
+    hard_fail_all = str(os.getenv("DOLPIN_HARD_FAIL_ALL", "")).lower() in {"1", "true", "yes", "on"}
+    return hard_fail_all or stage in stages
+
+
+def _raise_if_hard_fail(state: AnalysisState, stage: str, message: str, exc: Optional[Exception] = None) -> None:
+    if not _should_hard_fail(state, stage):
+        return
+    if exc is None:
+        raise RuntimeError(f"[hard-fail:{stage}] {message}")
+    raise RuntimeError(f"[hard-fail:{stage}] {message}") from exc
+
+
 
 # ============================================================
 # spike_analyzer
@@ -371,6 +390,7 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
         )
         state["lexicon_matches"] = None
         _update_node_insight(state, "lexicon_lookup", "렉시콘 매칭 실패(예외)")
+        _raise_if_hard_fail(state, "lexicon_lookup", "lexicon lookup failed", e)
         return state
 
 
@@ -445,6 +465,7 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             )
             state["sentiment_result"] = None
             _update_node_insight(state, "sentiment", "모델 초기화 실패")
+            _raise_if_hard_fail(state, "sentiment", "sentiment model init failed", e)
             return state
 
         # 감정 분석 실행
@@ -488,6 +509,7 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
         )
         state["sentiment_result"] = None
         _update_node_insight(state, "sentiment", "감정 분석 실패(예외)")
+        _raise_if_hard_fail(state, "sentiment", "sentiment analysis failed", e)
         return state
 
 
@@ -542,35 +564,110 @@ def router2_node(state: AnalysisState) -> AnalysisState:
 
 def causality_node(state: AnalysisState) -> AnalysisState:
     """
-    인과관계 분석 노드 (현재 stub)
+    인과관계 분석 노드
+    - spike_event.messages를 CausalityAgent 입력으로 변환
+    - 결과를 CausalityAnalysisResult 스키마로 정규화
     """
     _ensure_state_collections(state)
 
     try:
-        result = {
-            "trigger_source": "influencer",
-            "hub_accounts": [
+        spike_event = state.get("spike_event") or {}
+        messages = (spike_event.get("messages") or [])
+        if not messages:
+            state["causality_result"] = None
+            _update_node_insight(state, "causality", "분석할 메시지 없음")
+            return state
+
+        sentiment = state.get("sentiment_result") or {}
+        dominant = str(sentiment.get("dominant_sentiment", "")).strip()
+        dominant_type_map = {
+            "support": "support_action",
+            "meme": "meme_positive",
+            "boycott": "boycott_action",
+            "fanwar": "fanwar_action",
+            "disappointment": "meme_negative",
+        }
+        dominant_type = dominant_type_map.get(dominant, "")
+
+        negative_cues = ("불매", "보이콧", "실망", "논란", "탈덕", "최악")
+        fanwar_cues = ("팬덤", "팬들", "싸움", "전쟁", "저격")
+        meme_cues = ("밈", "짤", "드립", "웃김")
+        support_cues = ("응원", "감사", "최고", "좋다")
+
+        enriched_messages = []
+        for msg in messages:
+            message = dict(msg or {})
+            msg_types = list(message.get("types") or [])
+            text = str(message.get("text", ""))
+
+            if not msg_types:
+                if any(c in text for c in negative_cues):
+                    msg_types.append("meme_negative")
+                if any(c in text for c in fanwar_cues):
+                    msg_types.append("fanwar_target")
+                if any(c in text for c in meme_cues):
+                    msg_types.append("meme_positive")
+                if any(c in text for c in support_cues):
+                    msg_types.append("support_action")
+                if not msg_types and dominant_type:
+                    msg_types = [dominant_type]
+
+            message["types"] = msg_types
+            enriched_messages.append(message)
+
+        causality_input = dict(spike_event)
+        causality_input["messages"] = enriched_messages
+
+        from src.agents.causality_agent import analyze_network
+        raw = analyze_network(causality_input)
+
+        graph_analysis = ((raw.get("debug") or {}).get("graph_analysis") or {})
+        central_nodes = graph_analysis.get("central_nodes") or []
+        hub_accounts = []
+        for node in central_nodes[:5]:
+            degree = float(node.get("degree", 0.0) or 0.0)
+            betweenness = float(node.get("betweenness", 0.0) or 0.0)
+            hub_accounts.append(
                 {
-                    "account_id": "user_abc",
-                    "influence_score": 0.9,
-                    "follower_count": 150000,
-                    "account_type": "influencer"
+                    "account_id": str(node.get("id", "unknown")),
+                    "influence_score": round(max(degree, betweenness), 2),
+                    "follower_count": 0,
+                    "account_type": "general",
                 }
-            ],
-            "retweet_network_metrics": {"centralization": 0.7, "avg_degree": 15.3},
-            "cascade_pattern": "viral",
-            "estimated_origin_time": "2026-01-10T09:30:00Z",
-            "key_propagation_paths": ["인플루언서A → 팬계정B → 일반유저들"]
+            )
+
+        ts_candidates = []
+        for msg in messages:
+            ts = (msg or {}).get("timestamp")
+            if ts:
+                ts_candidates.append(str(ts))
+        estimated_origin_time = min(ts_candidates) if ts_candidates else None
+
+        result = {
+            "trigger_source": raw.get("trigger_source", "organic"),
+            "hub_accounts": hub_accounts,
+            "retweet_network_metrics": {
+                "centralization": float((raw.get("retweet_network_metrics") or {}).get("centralization", 0.0) or 0.0),
+                "avg_degree": float((raw.get("retweet_network_metrics") or {}).get("avg_degree", 0.0) or 0.0),
+            },
+            "cascade_pattern": raw.get("cascade_pattern", "echo_chamber"),
+            "estimated_origin_time": estimated_origin_time,
+            "key_propagation_paths": list(raw.get("key_propagation_paths") or []),
         }
 
         state["causality_result"] = result
-        _update_node_insight(state, "causality", f"{result['trigger_source']} 주도, {result['cascade_pattern']} 패턴")
+        _update_node_insight(
+            state,
+            "causality",
+            f"{result['trigger_source']} 주도, {result['cascade_pattern']} 패턴, hubs={len(hub_accounts)}",
+        )
         return state
 
     except Exception as e:
         _add_error_log(state, "causality", "exception", str(e))
         state["causality_result"] = None
         _update_node_insight(state, "causality", "인과 분석 실패(예외)")
+        _raise_if_hard_fail(state, "causality", "causality analysis failed", e)
         return state
 
 
@@ -822,10 +919,33 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
                     logger.info("Slack 전송 완료")
                 else:
                     logger.warning("Slack 전송 실패")
+                    _add_error_log(
+                        state,
+                        stage="exec_brief",
+                        error_type="api_error",
+                        message="slack send_to_slack returned False",
+                        details={"channel_id": channel_id},
+                    )
+                    _raise_if_hard_fail(state, "exec_brief", "slack send failed")
             except Exception as e:
                 logger.warning(f"Slack 전송 실패: {e}")
+                _add_error_log(
+                    state,
+                    stage="exec_brief",
+                    error_type="exception",
+                    message=f"slack send exception: {e}",
+                    details={"channel_id": channel_id},
+                )
+                _raise_if_hard_fail(state, "exec_brief", "slack send exception", e)
         elif bot_token and not channel_id:
             logger.warning("SLACK CHANNEL ID와 토큰을 확인하세요.")
+            _add_error_log(
+                state,
+                stage="exec_brief",
+                error_type="schema_error",
+                message="SLACK_BOT_TOKEN exists but SLACK_CHANNEL_ID missing",
+            )
+            _raise_if_hard_fail(state, "exec_brief", "slack channel id missing")
 
         return state
 
@@ -853,6 +973,7 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
             "analysis_duration_seconds": 0.0,
         }
         _update_node_insight(state, "exec_brief", "failed")
+        _raise_if_hard_fail(state, "exec_brief", "exec brief generation failed", e)
         return state
 
 
