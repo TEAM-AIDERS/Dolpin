@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional, Literal
 import json
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -11,10 +11,10 @@ from ..server.mcp_client import get_mcp_client
 
 logger = logging.getLogger("legal_agent")
 
-# -- 1. Pyndatic Schemas -- 
+# -- 1. Pydantic Schemas with Validators -- 
 
 class RiskAssessmentSchema(BaseModel):
-    risk_level: Literal["Critical", "High", "Medium", "Low"]
+    risk_level: Literal["critical", "high", "medium", "low"]
     legal_violation: List[str] = Field(description="관련 법률/조항/판례 키워드")
     analysis: str = Field(description="요약 분석")
     
@@ -30,7 +30,7 @@ class SignalInfoSchema(BaseModel):
     matched_keywords: List[str]
     reason: Literal["keyword_match", "pattern_match", "none"]
     
-# LLM이 생성할 최종 출력 스키마
+# LLM이 생성할 최종 출력 스키마 + 검증 로직
 class LegalRiskOutputSchema(BaseModel):
     overall_risk_level: Literal["low", "medium", "high", "critical"]
     clearance_status: Literal["clear", "review_needed", "high_risk"]
@@ -43,6 +43,59 @@ class LegalRiskOutputSchema(BaseModel):
     referenced_documents: List[ReferencedDocumentSchema] = Field(default_factory=list)
     signals: Optional[SignalInfoSchema] = None
     
+    # field_validator (개별 필드 검증)
+    @field_validator('confidence')
+    @classmethod
+    # 신뢰도는 0.0 ~ 1.0 범위
+    def validate_confidence(cls, v):
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"confidence must be between 0.0 and 1.0, got {v}")
+        return v
+    
+    @field_validator('rag_confidence')
+    @classmethod
+     # rag_confidence는 None 이거나 0.0 ~ 1.0 범위
+    def validate_rag_confidence(cls, v):
+        if v is not None and not 0.0 <= v <= 1.0:
+            raise ValueError(f"rag_confidence must be between 0.0 and 1.0 or None, got {v}")
+        return v
+    
+    # 필드 간 관계 검증: LLM이 매핑을 실수했을 경우 자동으로 보정
+    @model_validator(mode='after')
+    def validate_risk_level_mapping(self):
+        mapping = {
+            "critical": "high_risk",
+            "high": "high_risk",
+            "medium": "review_needed",
+            "low": "clear"
+        }
+        
+        expected_status = mapping.get(self.overall_risk_level)
+        
+        if self.clearance_status != expected_status:
+            logger.warning(
+                f"❌ Risk-Status 매핑 불일치 감지!\n"
+                f"   overall_risk_level: {self.overall_risk_level}\n"
+                f"   Expected: {expected_status}, Got: {self.clearance_status}\n"
+                f"   → 자동 보정 적용"
+            )
+            self.clearance_status = expected_status
+        
+        return self
+    # rag_performed와 rag_confidence의 일관성 검증
+    @model_validator(mode='after')
+    def validate_rag_confidence_consistency(self):
+        if not self.rag_performed and self.rag_confidence is not None:
+            logger.warning(
+                f"⚠️  RAG 미수행인데 rag_confidence가 설정됨\n"
+                f"   rag_performed: {self.rag_performed}\n"
+                f"   rag_confidence: {self.rag_confidence}\n"
+                f"   → rag_confidence를 None으로 설정"
+            )
+            self.rag_confidence = None
+        
+        return self
+
 
 # -- 2. Agent 클래스 구현 -- 
 LEGAL_KEYWORDS = [
@@ -56,7 +109,11 @@ class LegalRAGAgent:
     def __init__(self, model_name="gpt-4o"):
         self.mcp = get_mcp_client()
         self.planner_llm = ChatOpenAI(model=model_name, temperature=0)
-        self.synthesizer_llm = ChatOpenAI(model=model_name, temperature=0).with_structured_output(LegalRiskOutputSchema)
+        self.synthesizer_llm = ChatOpenAI(model=model_name, temperature=0).with_structured_output(
+            LegalRiskOutputSchema,
+            method="json_schema"
+        )
+    
     # 메인 로직: Quick Check -> Agentic Loop -> Synthesis
     async def check_legal_risk(self, query_context: LegalRAGInput) -> LegalRiskResult:
         logger.info(f"⚖️ Legal Agent 분석 시작 (키워드: {query_context.get('keyword')})")
@@ -77,10 +134,14 @@ class LegalRAGAgent:
 
             # Retrieval Quality (문서 개수 가중치)
             doc_count = len(rag_context)
-            if doc_count >= 3: retrieval_quality_factor = 1.0
-            elif doc_count == 2: retrieval_quality_factor = 0.7
-            elif doc_count == 1: retrieval_quality_factor = 0.4
-            else: retrieval_quality_factor = 0.0
+            if doc_count >= 3:
+                retrieval_quality_factor = 1.0
+            elif doc_count == 2:
+                retrieval_quality_factor = 0.7
+            elif doc_count == 1:
+                retrieval_quality_factor = 0.4
+            else:
+                retrieval_quality_factor = 0.0
 
         # 3. Final Synthesis (결과 생성, 타입 검증)
         final_pydantic_result = await self._synthesize_result(
@@ -88,6 +149,7 @@ class LegalRAGAgent:
         )
         
         return final_pydantic_result.model_dump()
+    
     # 리스크 판단 
     def _quick_risk_check(self, context: LegalRAGInput) -> dict:
         messages_text = " ".join(context["messages"])
@@ -117,22 +179,16 @@ class LegalRAGAgent:
                 else "none"
             )
         }
+    
     # Resource Prompt 기반 반복 검색
     async def _perform_agentic_search(self, context: LegalRAGInput, signals: dict) -> List[Dict]:
         max_iterations = 3
-        collected_dict = {}
+        collected_info = []
         # 검색 계획 수립 
         planner_prompt = ChatPromptTemplate.from_template("""
         당신은 '법률 조사 에이전트'입니다. 현재 상황에 가장 적합한 도구를 선택하여 검색하세요.
         (반복: {iteration}/{max_iterations})
 
-        [입력 상황]
-        - 키워드: {keyword}
-        - spike 성격: {nature}
-        - 주요 감정: {sentiment}
-        - 탐지된 법적 신호: {signals}
-        - 현재까지 확보된 정보 요약: {collected_summary}
-        
         [사용 가능한 MCP 도구]
         1. search_statutes: 저작권법, 상표법 등 '성문법' 근거가 필요할 때 사용.
         2. search_precedents: 한국저작권위원회 등의 '실제 판례 및 상담 사례'가 필요할 때 사용.
@@ -148,7 +204,7 @@ class LegalRAGAgent:
         planner_chain = planner_prompt | self.planner_llm
 
         for i in range(max_iterations):
-            summary = str([item.get('content', '')[:50] for item in collected_dict.values()]) if collected_dict.values() else "없음"
+            summary = str([item.get('content', '')[:50] for item in collected_info]) if collected_info else "없음"
             
             response = await planner_chain.ainvoke({
                 "keyword": context.get('keyword', ''),
@@ -161,7 +217,8 @@ class LegalRAGAgent:
             })
             
             decision = response.content.strip()
-            if "STOP" in decision: break
+            if "STOP" in decision:
+                break
             
             if "CALL:" in decision and "QUERY:" in decision:
                 try:
@@ -183,19 +240,17 @@ class LegalRAGAgent:
                         continue
 
                     if results:
-                        # 중복 제거 로직: title이 같으면 덮어씌워 고유 문서만 유지
+                        # 출처 정보 추가 
                         for r in results:
                             r['source_type'] = tool_part
-                            doc_key = r.get('title', r.get('content', '')[:30])
-                            collected_dict[doc_key] = r
+                        collected_info.extend(results)  # Agent의 작업 메모리
                         
                 except Exception as e:
                     logger.error(f"   -> MCP 호출 실패 ({decision}): {e}")
         
-        return list(collected_dict.values())
+        return collected_info
     
     # 최종 리포트 생성 단계 
-    # 검색 결과 → LLM 판단 → 시스템이 신뢰도 계산 → 최종 출력
     async def _synthesize_result(
         self, context: LegalRAGInput, signals: dict, rag_context: List[Dict],
         rag_required: bool, rag_performed: bool, retrieval_quality_factor: float
@@ -203,10 +258,21 @@ class LegalRAGAgent:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """
             'LegalRiskResult' 리포트 작성 가이드:
-            - overall_risk_level에 따른 clearance_status 강제 매핑:
-              * critical/high -> high_risk
-              * medium -> review_needed
-              * low -> clear
+            
+            [Risk Level 형식 (소문자 필수)]
+            - overall_risk_level: "low", "medium", "high", "critical" (소문자)
+            - risk_assessment.risk_level: "low", "medium", "high", "critical" (소문자)
+            
+            [Risk-Status 매핑 규칙]
+            다음 규칙을 반드시 따르세요:
+            - critical 또는 high → clearance_status는 "high_risk"
+            - medium → clearance_status는 "review_needed"
+            - low → clearance_status는 "clear"
+            
+            [신뢰도 범위]
+            - confidence: 0.0 ~ 1.0 (필수)
+            - rag_confidence: 0.0 ~ 1.0 또는 null (검색 미수행 시 null)
+            
             - rag_confidence: 검색된 법률 정보의 적합도(0.0~1.0) 평가
             """),
             ("human", "상황: {spike_nature}, 리스크신호: {signals}, 법률참조: {rag_context}")
@@ -220,7 +286,7 @@ class LegalRAGAgent:
             "rag_context": json.dumps(rag_context, ensure_ascii=False)
         })
         
-        # 메타데이터 및 신뢰도 보정 (Hallucination 방지)
+        # 메타데이터 설정
         result.rag_required = rag_required
         result.rag_performed = rag_performed
         result.signals = SignalInfoSchema(**signals)
@@ -233,8 +299,12 @@ class LegalRAGAgent:
         else: 
             llm_qualitative_score = result.rag_confidence if result.rag_confidence is not None else 0.5
             result.confidence = round(llm_qualitative_score * retrieval_quality_factor, 2)
-            result.rag_confidence = llm_qualitative_score # (rag_confidence는 LLM 점수 그대로 유지)
+            result.rag_confidence = llm_qualitative_score
+        
         return result
-    
+
+
+# -- 3. 모듈 레벨 래퍼 함수 --
 async def check_legal_risk(query_context: LegalRAGInput) -> LegalRiskResult:
-    return await LegalRAGAgent().check_legal_risk(query_context)
+    agent = LegalRAGAgent()
+    return await agent.check_legal_risk(query_context)
