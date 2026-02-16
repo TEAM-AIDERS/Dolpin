@@ -113,7 +113,7 @@ class SentimentAgent:
         sentiment_map: Optional[Dict[str, str]] = None,
         trigger_map: Optional[Dict[str, str]] = None,
     ):
-        self.model = model.to(device)
+        self.model = model
         self.tokenizer = tokenizer
         self.label2id = label2id
         self.id2label = id2label
@@ -183,12 +183,13 @@ class SentimentAgent:
             probs = torch.softmax(logits, dim=-1)
         probs = probs.squeeze().detach().cpu().numpy()
         
-        if probs.shape[-1] == 5:
-            probs = np.append(probs, 0.0)
-        elif probs.shape[-1] != 6:
+        if probs.ndim == 0:
+            probs = np.array([float(probs)])
+
+        if probs.shape[-1] != 6:
             raise ValueError(f"Model output labels must be 6, got {probs.shape[-1]}")
-        
-        probs = probs / probs.sum()
+
+        probs = _normalize_probs(probs)
         return probs
 
     def _lexicon_match(self, text: str) -> Tuple[List[Dict[str, Any]], Dict[str, int], Dict[str, int]]:
@@ -521,15 +522,15 @@ class SentimentAgent:
         return out, route_meta
 
 
-def load_model_and_tokenizer(model_path: str, device: str) -> Tuple[Any, Any, Dict[str, int], Dict[int, str]]:
+def load_model_and_tokenizer(model_path: str, device: str):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
     cfg = model.config
-    if getattr(cfg, "label2id", None) and isinstance(cfg.label2id, dict) and len(cfg.label2id) > 0:
+
+    label2id_raw = {}
+    if getattr(cfg, "label2id", None):
         label2id_raw = dict(cfg.label2id)
-    else:
-        label2id_raw = {l: i for i, l in enumerate(LABELS)}
 
     norm = {}
     for k, v in label2id_raw.items():
@@ -537,11 +538,12 @@ def load_model_and_tokenizer(model_path: str, device: str) -> Tuple[Any, Any, Di
         if kk in LABEL_SET:
             norm[kk] = int(v)
 
-    if set(norm.keys()) != LABEL_SET or len(norm) != 6:
+    if set(norm.keys()) != LABEL_SET:
         norm = {l: i for i, l in enumerate(LABELS)}
 
     id2label = {v: k for k, v in norm.items()}
 
+    device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
 
@@ -612,7 +614,13 @@ def main():
     p.add_argument("--save_json", type=str, default="")
     args = p.parse_args()
 
-    agent = build_agent(args.model_path, args.lexicon_path, args.device)
+    agent = build_agent(
+        model_path=args.model_path,
+        lexicon_path=args.lexicon_path,
+        device=args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
+
+
 
     test_results = run_tests(agent)
 
@@ -638,4 +646,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
