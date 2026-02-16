@@ -26,6 +26,9 @@ jobs:
           pip install -r requirements.txt
           pip install huggingface_hub
 
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+
       - name: Debug env
         run: |
           echo "Model path: $SENTIMENT_MODEL_PATH"
@@ -33,3 +36,4 @@ jobs:
 
       - name: Run tests
         run: pytest
+
