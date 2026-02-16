@@ -423,18 +423,13 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             _update_node_insight(state, "sentiment", "텍스트가 비어 있음")
             return state
 
-        model_path_from_state = str(state.get("sentiment_model_path", "") or "").strip()
-        model_path_from_env = str(os.getenv("SENTIMENT_MODEL_PATH", "") or "").strip()
-        model_path = _resolve_existing_path(
-            [
-                model_path_from_state,
-                model_path_from_env,
-                "models/sentiment_model",
-                "sentiment_ft",
-            ]
-        ) or model_path_from_state or model_path_from_env or "models/sentiment_model"
+        model_path = (
+            state.get("sentiment_model_path")
+            or os.getenv("SENTIMENT_MODEL_PATH")
+            or "Aerisbin/sentiment-agent-v1"
+        )
 
-        device = str(state.get("device", "cpu") or "cpu")
+        device = state.get("device") or "cpu"
 
         try:
             agent = build_sentiment_agent(model_path, device)
@@ -443,7 +438,6 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
                 "SentimentAgent init failed: %s | model_path=%s (exists=%s) | device=%s",
                 e,
                 model_path,
-                Path(model_path).exists(),
                 device,
             )
             _add_error_log(
@@ -453,7 +447,6 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
                 message=f"sentiment init failed: {e}",
                 details={
                     "model_path": model_path,
-                    "model_exists": Path(model_path).exists(),
                     "device": device,
                 },
             )
