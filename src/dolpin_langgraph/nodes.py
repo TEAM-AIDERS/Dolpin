@@ -697,9 +697,10 @@ def router3_node(state: AnalysisState) -> AnalysisState:
 # legal_rag
 # ============================================================
 
+
 async def legal_rag_node(state: AnalysisState) -> AnalysisState:
     try:
-        # 1. LegalRAGInput 구성
+        # 1️. LegalRAGInput 구성
         spike_event = state["spike_event"]
         spike_analysis = state.get("spike_analysis")
         sentiment_result = state.get("sentiment_result")
@@ -714,12 +715,11 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
             "spike_rate": spike_analysis["spike_rate"] if spike_analysis else 0.0,
             "fanwar_targets": sentiment_result.get("fanwar_targets") if sentiment_result else None,
         }
-        # 2. LegalRAGAgent 실행
-        legal_result: LegalRiskResult = await check_legal_risk(legal_input)
-        
-        # 3. State 업데이트
 
-        # node_insights 요약 추가
+        # 2️. LegalRAGAgent 실행
+        legal_result: LegalRiskResult = await check_legal_risk(legal_input)
+
+        # 3️. node_insights 요약
         insight_summary = (
             f"Legal Risk Level: {legal_result['overall_risk_level']} | "
             f"Clearance: {legal_result['clearance_status']}"
@@ -733,7 +733,24 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
                 "LegalRAG": insight_summary
             }
         }
+
     except Exception as e:
+        # Fallback LegalRiskResult 
+        fallback_result: LegalRiskResult = {
+            "overall_risk_level": "medium",
+            "clearance_status": "review_needed",
+            "confidence": 0.2,  # 매우 낮은 신뢰도
+            "rag_required": True,
+            "rag_performed": False,
+            "rag_confidence": None,
+            "risk_assessment": None,
+            "recommended_action": [
+                "법률 분석 실패 - 내부 법무팀 수동 검토 필요"
+            ],
+            "referenced_documents": [],
+            "signals": None
+        }
+
         error_log: ErrorLog = {
             "stage": "legal_rag",
             "error_type": "exception",
@@ -745,11 +762,11 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
 
         return {
             **state,
-            "legal_risk": None,
+            "legal_risk": fallback_result, 
             "error_logs": state.get("error_logs", []) + [error_log],
             "node_insights": {
                 **state.get("node_insights", {}),
-                "LegalRAG": "Legal analysis failed"
+                "LegalRAG": "Legal analysis failed - fallback applied"
             }
         }
 
