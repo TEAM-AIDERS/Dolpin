@@ -1,4 +1,4 @@
-from agents.causality_agent import CausalityAgent
+from src.agents.causality_agent import CausalityAgent
 
 def run_sample():
     items = [
