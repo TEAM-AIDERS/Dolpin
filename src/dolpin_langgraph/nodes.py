@@ -454,8 +454,6 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
                 details={
                     "model_path": model_path,
                     "model_exists": Path(model_path).exists(),
-                    "lexicon_path": lexicon_path,
-                    "lexicon_exists": Path(lexicon_path).exists(),
                     "device": device,
                 },
             )
