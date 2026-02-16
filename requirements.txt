@@ -6,4 +6,5 @@ pandas
 pytest
 langgraph
 slack_sdk
-
+langchain-openai
+python-dotenv
