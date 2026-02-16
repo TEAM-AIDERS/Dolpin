@@ -440,13 +440,10 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             agent = build_sentiment_agent(model_path, device)
         except Exception as e:
             logger.error(
-                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | "
-                "lexicon_path=%s (exists=%s) | device=%s",
+                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | device=%s",
                 e,
                 model_path,
                 Path(model_path).exists(),
-                lexicon_path,
-                Path(lexicon_path).exists(),
                 device,
             )
             _add_error_log(
