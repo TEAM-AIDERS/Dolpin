@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from .state import AnalysisState, ErrorLog
+from .state import AnalysisState, LegalRAGInput, LegalRiskResult, ErrorLog
 from .edges import (
     route_after_spike_analysis,
     route_after_sentiment,
@@ -21,6 +21,7 @@ from .edges import (
 )
 
 from src.agents.sentiment_agent import build_agent as build_sentiment_agent
+from src.agents.legalrag_agent import check_legal_risk
 
 logger = logging.getLogger(__name__)
 
@@ -696,51 +697,61 @@ def router3_node(state: AnalysisState) -> AnalysisState:
 # legal_rag
 # ============================================================
 
-def legal_rag_node(state: AnalysisState) -> AnalysisState:
-    """
-    법률 리스크 검토 노드 (현재 stub)
-    """
-    _ensure_state_collections(state)
-
+async def legal_rag_node(state: AnalysisState) -> AnalysisState:
     try:
-        result = {
-            "overall_risk_level": "low",
-            "clearance_status": "clear",
-            "confidence": 0.95,
-            "rag_required": False,
-            "rag_performed": False,
-            "rag_confidence": None,
-            "risk_assessment": None,
-            "recommended_action": [],
-            "referenced_documents": [],
-            "signals": {
-                "legal_keywords_detected": False,
-                "matched_keywords": [],
-                "reason": "none"
+        # 1. LegalRAGInput 구성
+        spike_event = state["spike_event"]
+        spike_analysis = state.get("spike_analysis")
+        sentiment_result = state.get("sentiment_result")
+        
+        messages_text = [m["text"] for m in spike_event["messages"]]
+
+        legal_input: LegalRAGInput = {
+            "messages": messages_text,
+            "spike_nature": spike_analysis["spike_nature"] if spike_analysis else "neutral",
+            "dominant_sentiment": sentiment_result["dominant_sentiment"] if sentiment_result else "neutral",
+            "keyword": spike_event["keyword"],
+            "spike_rate": spike_analysis["spike_rate"] if spike_analysis else 0.0,
+            "fanwar_targets": sentiment_result.get("fanwar_targets") if sentiment_result else None,
+        }
+        # 2. LegalRAGAgent 실행
+        legal_result: LegalRiskResult = await check_legal_risk(legal_input)
+        
+        # 3. State 업데이트
+        
+        # node_insights 요약 추가
+        insight_summary = (
+            f"Legal Risk Level: {legal_result['overall_risk_level']} | "
+            f"Clearance: {legal_result['clearance_status']}"
+        )
+
+        return {
+            **state,
+            "legal_risk": legal_result,
+            "node_insights": {
+                **state.get("node_insights", {}),
+                "legal_rag": insight_summary
             }
         }
-
-        # State 업데이트
-        state["legal_risk"] = result
-        _update_node_insight(state, "legal_rag", f"{result['overall_risk_level']}/{result['clearance_status']}")
-        return state
-
     except Exception as e:
-        _add_error_log(state, "legal_rag", "exception", str(e))
-        state["legal_risk"] = {
-            "overall_risk_level": "medium",
-            "clearance_status": "review_needed",
-            "confidence": 0.5,
-            "rag_required": False,
-            "rag_performed": False,
-            "rag_confidence": None,
-            "risk_assessment": None,
-            "recommended_action": ["수동 검토 필요"],
-            "referenced_documents": [],
-            "signals": None
+        error_log: ErrorLog = {
+            "stage": "legal_rag",
+            "error_type": "exception",
+            "message": str(e),
+            "occurred_at": datetime.utcnow().isoformat(),
+            "trace_id": state["trace_id"],
+            "details": None,
         }
-        _update_node_insight(state, "legal_rag", "review_needed (exception)")
-        return state
+
+        return {
+            **state,
+            "legal_risk": None,
+            "error_logs": state.get("error_logs", []) + [error_log],
+            "node_insights": {
+                **state.get("node_insights", {}),
+                "legal_rag": "Legal analysis failed"
+            }
+        }
 
 
 # ============================================================
