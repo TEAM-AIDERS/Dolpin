@@ -428,7 +428,10 @@ class SentimentAgent:
 
             for m in matches:
                 entry = m.get("entry", {})
-                raw_type = entry.get("type")
+                raw_type = (
+                    m.get("entry", {}).get("type")
+                    or m.get("type")
+                )
 
                 if raw_type == "boycott_action":
                     trigger_counts["boycott"] += 1
@@ -460,8 +463,12 @@ class SentimentAgent:
         return out, route_meta
 
 def load_model_and_tokenizer(model_path: str, device: str):
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    hf_token = os.getenv("HF_TOKEN")
+    if model_path.startswith("Aerisbin/") and not hf_token:
+        raise RuntimeError("HF_TOKEN is required for private model access.")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path, token=hf_token)
 
     cfg = model.config
 
@@ -553,8 +560,6 @@ def main():
         device=args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu")
     )
 
-
-
     test_results = run_tests(agent)
 
     for r in test_results:
@@ -579,6 +584,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
