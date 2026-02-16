@@ -718,7 +718,7 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
         legal_result: LegalRiskResult = await check_legal_risk(legal_input)
         
         # 3. State 업데이트
-        
+
         # node_insights 요약 추가
         insight_summary = (
             f"Legal Risk Level: {legal_result['overall_risk_level']} | "
@@ -730,7 +730,7 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
             "legal_risk": legal_result,
             "node_insights": {
                 **state.get("node_insights", {}),
-                "legal_rag": insight_summary
+                "LegalRAG": insight_summary
             }
         }
     except Exception as e:
@@ -738,7 +738,7 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
             "stage": "legal_rag",
             "error_type": "exception",
             "message": str(e),
-            "occurred_at": datetime.utcnow().isoformat(),
+            "occurred_at": datetime.utcnow().isoformat() + "Z",
             "trace_id": state["trace_id"],
             "details": None,
         }
@@ -749,7 +749,7 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
             "error_logs": state.get("error_logs", []) + [error_log],
             "node_insights": {
                 **state.get("node_insights", {}),
-                "legal_rag": "Legal analysis failed"
+                "LegalRAG": "Legal analysis failed"
             }
         }
 
