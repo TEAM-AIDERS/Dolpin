@@ -1,4 +1,4 @@
-"""
+﻿"""
 LangGraph 노드 래퍼 함수
 각 에이전트를 호출하고 State를 업데이트합니다.
 
@@ -9,6 +9,7 @@ LangGraph 노드 래퍼 함수
 """
 
 import logging, os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
@@ -69,6 +70,33 @@ def _utcnow_z() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _resolve_existing_path(candidates: list[str]) -> Optional[str]:
+    for candidate in candidates:
+        raw = str(candidate or "").strip()
+        if raw and Path(raw).exists():
+            return raw
+    return None
+
+
+def _should_hard_fail(state: AnalysisState, stage: str) -> bool:
+    raw = state.get("hard_fail_stages")
+    if isinstance(raw, (list, tuple, set)):
+        stages = {str(v).strip() for v in raw if str(v).strip()}
+    else:
+        env_raw = os.getenv("DOLPIN_HARD_FAIL_STAGES", "")
+        stages = {s.strip() for s in env_raw.split(",") if s.strip()}
+    hard_fail_all = str(os.getenv("DOLPIN_HARD_FAIL_ALL", "")).lower() in {"1", "true", "yes", "on"}
+    return hard_fail_all or stage in stages
+
+
+def _raise_if_hard_fail(state: AnalysisState, stage: str, message: str, exc: Optional[Exception] = None) -> None:
+    if not _should_hard_fail(state, stage):
+        return
+    if exc is None:
+        raise RuntimeError(f"[hard-fail:{stage}] {message}")
+    raise RuntimeError(f"[hard-fail:{stage}] {message}") from exc
+
+
 
 # ============================================================
 # spike_analyzer
@@ -76,38 +104,144 @@ def _utcnow_z() -> str:
 
 def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
     """
-    급등 분석 노드 (현재 stub)
-    TODO: spike analyzer 실제 연결 시 교체
+    급등 분석 노드
+    - spike_event 기반으로 significance/viral/actionability 계산
+    - 임계값 override 지원:
+      - significant_spike_threshold (default: 2.0)
+      - breakout_spike_threshold (default: 3.0)
     """
     _ensure_state_collections(state)
 
     try:
-        # Stub: 더미 데이터
-        spike_event = state["spike_event"]
+        spike_event = state.get("spike_event") or {}
+        messages = spike_event.get("messages", []) or []
+        keyword = str(spike_event.get("keyword", "unknown"))
+
+        baseline = int(spike_event.get("baseline", 0) or 0)
+        current_volume = int(spike_event.get("current_volume", 0) or 0)
+        spike_rate_raw = float(spike_event.get("spike_rate", 0.0) or 0.0)
+        if spike_rate_raw <= 0 and baseline > 0 and current_volume > 0:
+            spike_rate_raw = current_volume / baseline
+        spike_rate = round(float(spike_rate_raw), 2)
+
+        sig_threshold = float(state.get("significant_spike_threshold", 2.0) or 2.0)
+        breakout_threshold = float(state.get("breakout_spike_threshold", 3.0) or 3.0)
+        is_significant = spike_rate >= sig_threshold
+        has_breakout = spike_rate >= breakout_threshold
+
+        source_set = {str((m or {}).get("source", "")).strip() for m in messages if (m or {}).get("source")}
+        cross_platform = sorted(source_set)
+
+        engagement_sum = 0
+        for msg in messages:
+            metrics = (msg or {}).get("metrics", {}) or {}
+            engagement_sum += int(metrics.get("likes", 0) or 0)
+            engagement_sum += int(metrics.get("retweets", 0) or 0)
+            engagement_sum += int(metrics.get("replies", 0) or 0)
+
+        non_ko_count = 0
+        for msg in messages:
+            lang = str((msg or {}).get("detected_language", "")).lower().strip()
+            if lang and lang not in ("ko", "kr"):
+                non_ko_count += 1
+        international_reach = round(non_ko_count / max(1, len(messages)), 2)
+
+        positive_cues = ("좋", "최고", "감사", "응원", "축하", "사랑", "행복", "대박")
+        negative_cues = ("불매", "보이콧", "실망", "화나", "논란", "문제", "싫", "최악", "탈덕")
+        positive_hits = 0
+        negative_hits = 0
+        for msg in messages:
+            text = str((msg or {}).get("text", "")).lower()
+            if any(cue in text for cue in positive_cues):
+                positive_hits += 1
+            if any(cue in text for cue in negative_cues):
+                negative_hits += 1
+
+        if positive_hits > 0 and negative_hits > 0:
+            spike_nature = "mixed"
+        elif negative_hits > positive_hits:
+            spike_nature = "negative"
+        elif positive_hits > 0:
+            spike_nature = "positive"
+        else:
+            spike_nature = "neutral"
+
+        timestamp_candidates = []
+        for msg in messages:
+            ts = (msg or {}).get("timestamp")
+            if ts:
+                timestamp_candidates.append(str(ts))
+        detected_at = spike_event.get("detected_at")
+        if detected_at:
+            timestamp_candidates.append(str(detected_at))
+        peak_timestamp = max(timestamp_candidates) if timestamp_candidates else _utcnow_z()
+
+        duration_minutes = 0
+        if len(messages) >= 2:
+            parsed = []
+            for msg in messages:
+                ts = (msg or {}).get("timestamp")
+                if not ts:
+                    continue
+                try:
+                    parsed.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")))
+                except Exception:
+                    continue
+            if len(parsed) >= 2:
+                duration_minutes = int((max(parsed) - min(parsed)).total_seconds() / 60)
+
+        actionability_score = (
+            0.45 * min(1.0, spike_rate / 5.0)
+            + 0.25 * min(1.0, len(messages) / 50.0)
+            + 0.20 * (1.0 if has_breakout else 0.0)
+            + 0.10 * min(1.0, len(cross_platform) / 3.0)
+        )
+        actionability_score = round(max(0.0, min(1.0, actionability_score)), 2)
+
+        confidence = (
+            0.50
+            + 0.20 * min(1.0, len(messages) / 30.0)
+            + 0.20 * (1.0 if baseline > 0 and current_volume > 0 else 0.0)
+            + 0.10 * min(1.0, len(cross_platform) / 2.0)
+        )
+        confidence = round(max(0.0, min(1.0, confidence)), 2)
+
+        data_completeness = "confirmed" if (baseline > 0 and current_volume > 0 and messages) else "partial"
+        partial_data_warning = None
+        if data_completeness != "confirmed":
+            partial_data_warning = "incomplete spike_event fields"
+
+        max_rise_rate = "Breakout" if has_breakout else f"+{max(0.0, (spike_rate - 1.0) * 100):.0f}%"
+        breakout_queries = [keyword] if has_breakout and keyword != "unknown" else []
+        is_trending = has_breakout or len(cross_platform) >= 2
+
         result = {
-            "is_significant": True,
-            "spike_rate": 3.5,
+            "is_significant": is_significant,
+            "spike_rate": spike_rate,
             "spike_type": "organic",
-            "spike_nature": "positive",
-            "peak_timestamp": "2026-01-10T10:30:00Z",
-            "duration_minutes": 60,
-            "confidence": 0.85,
-            "actionability_score": 0.7,
-            "data_completeness": "confirmed",
-            "partial_data_warning": None,
+            "spike_nature": spike_nature,
+            "peak_timestamp": peak_timestamp,
+            "duration_minutes": duration_minutes,
+            "confidence": confidence,
+            "actionability_score": actionability_score,
+            "data_completeness": data_completeness,
+            "partial_data_warning": partial_data_warning,
             "viral_indicators": {
-                "is_trending": True,
-                "has_breakout": True,
-                "max_rise_rate": "Breakout",
-                "breakout_queries": ["뉴진스 컴백"],
-                "cross_platform": ["twitter", "google_trends"],
-                "international_reach": 0.3
+                "is_trending": is_trending,
+                "has_breakout": has_breakout,
+                "max_rise_rate": max_rise_rate,
+                "breakout_queries": breakout_queries,
+                "cross_platform": cross_platform,
+                "international_reach": international_reach
             }
         }
 
         state["spike_analysis"] = result
 
-        insight = f"{result['spike_rate']}배 급등, {result['spike_nature']} 바이럴"
+        insight = (
+            f"{result['spike_rate']}x spike, nature={result['spike_nature']}, "
+            f"actionability={result['actionability_score']}, engagement={engagement_sum}"
+        )
         if result.get("partial_data_warning"):
             insight += f", {result['partial_data_warning']}"
         _update_node_insight(state, "spike_analyzer", insight)
@@ -147,9 +281,6 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
         }
         _update_node_insight(state, "spike_analyzer", "급등 분석 중 오류가 발생했습니다.")
         return state
-
-
-# ============================================================
 # router1
 # ============================================================
 
@@ -259,6 +390,7 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
         )
         state["lexicon_matches"] = None
         _update_node_insight(state, "lexicon_lookup", "렉시콘 매칭 실패(예외)")
+        _raise_if_hard_fail(state, "lexicon_lookup", "lexicon lookup failed", e)
         return state
 
 
@@ -284,16 +416,56 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             _update_node_insight(state, "sentiment", "텍스트가 비어 있음")
             return state
 
-        MODEL_PATH = state.get("sentiment_model_path", "models/sentiment_model")
-        LEXICON_PATH = state.get("lexicon_path", "custom_lexicon.csv")
-        DEVICE = state.get("device", "cpu")
+        model_path_from_state = str(state.get("sentiment_model_path", "") or "").strip()
+        model_path_from_env = str(os.getenv("SENTIMENT_MODEL_PATH", "") or "").strip()
+        model_path = _resolve_existing_path(
+            [
+                model_path_from_state,
+                model_path_from_env,
+                "models/sentiment_model",
+                "sentiment_ft",
+            ]
+        ) or model_path_from_state or model_path_from_env or "models/sentiment_model"
+
+        lexicon_path_from_state = str(state.get("lexicon_path", "") or "").strip()
+        lexicon_path = _resolve_existing_path(
+            [
+                lexicon_path_from_state,
+                "custom_lexicon.csv",
+            ]
+        ) or lexicon_path_from_state or "custom_lexicon.csv"
+
+        device = str(state.get("device", "cpu") or "cpu")
 
         try:
-            agent = build_sentiment_agent(MODEL_PATH, LEXICON_PATH, DEVICE)
+            agent = build_sentiment_agent(model_path, lexicon_path, device)
         except Exception as e:
-            logger.error(f"SentimentAgent 초기화 실패: {e}")
+            logger.error(
+                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | "
+                "lexicon_path=%s (exists=%s) | device=%s",
+                e,
+                model_path,
+                Path(model_path).exists(),
+                lexicon_path,
+                Path(lexicon_path).exists(),
+                device,
+            )
+            _add_error_log(
+                state,
+                stage="sentiment",
+                error_type="exception",
+                message=f"sentiment init failed: {e}",
+                details={
+                    "model_path": model_path,
+                    "model_exists": Path(model_path).exists(),
+                    "lexicon_path": lexicon_path,
+                    "lexicon_exists": Path(lexicon_path).exists(),
+                    "device": device,
+                },
+            )
             state["sentiment_result"] = None
             _update_node_insight(state, "sentiment", "모델 초기화 실패")
+            _raise_if_hard_fail(state, "sentiment", "sentiment model init failed", e)
             return state
 
         # 감정 분석 실행
@@ -337,6 +509,7 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
         )
         state["sentiment_result"] = None
         _update_node_insight(state, "sentiment", "감정 분석 실패(예외)")
+        _raise_if_hard_fail(state, "sentiment", "sentiment analysis failed", e)
         return state
 
 
@@ -391,35 +564,110 @@ def router2_node(state: AnalysisState) -> AnalysisState:
 
 def causality_node(state: AnalysisState) -> AnalysisState:
     """
-    인과관계 분석 노드 (현재 stub)
+    인과관계 분석 노드
+    - spike_event.messages를 CausalityAgent 입력으로 변환
+    - 결과를 CausalityAnalysisResult 스키마로 정규화
     """
     _ensure_state_collections(state)
 
     try:
-        result = {
-            "trigger_source": "influencer",
-            "hub_accounts": [
+        spike_event = state.get("spike_event") or {}
+        messages = (spike_event.get("messages") or [])
+        if not messages:
+            state["causality_result"] = None
+            _update_node_insight(state, "causality", "분석할 메시지 없음")
+            return state
+
+        sentiment = state.get("sentiment_result") or {}
+        dominant = str(sentiment.get("dominant_sentiment", "")).strip()
+        dominant_type_map = {
+            "support": "support_action",
+            "meme": "meme_positive",
+            "boycott": "boycott_action",
+            "fanwar": "fanwar_action",
+            "disappointment": "meme_negative",
+        }
+        dominant_type = dominant_type_map.get(dominant, "")
+
+        negative_cues = ("불매", "보이콧", "실망", "논란", "탈덕", "최악")
+        fanwar_cues = ("팬덤", "팬들", "싸움", "전쟁", "저격")
+        meme_cues = ("밈", "짤", "드립", "웃김")
+        support_cues = ("응원", "감사", "최고", "좋다")
+
+        enriched_messages = []
+        for msg in messages:
+            message = dict(msg or {})
+            msg_types = list(message.get("types") or [])
+            text = str(message.get("text", ""))
+
+            if not msg_types:
+                if any(c in text for c in negative_cues):
+                    msg_types.append("meme_negative")
+                if any(c in text for c in fanwar_cues):
+                    msg_types.append("fanwar_target")
+                if any(c in text for c in meme_cues):
+                    msg_types.append("meme_positive")
+                if any(c in text for c in support_cues):
+                    msg_types.append("support_action")
+                if not msg_types and dominant_type:
+                    msg_types = [dominant_type]
+
+            message["types"] = msg_types
+            enriched_messages.append(message)
+
+        causality_input = dict(spike_event)
+        causality_input["messages"] = enriched_messages
+
+        from src.agents.causality_agent import analyze_network
+        raw = analyze_network(causality_input)
+
+        graph_analysis = ((raw.get("debug") or {}).get("graph_analysis") or {})
+        central_nodes = graph_analysis.get("central_nodes") or []
+        hub_accounts = []
+        for node in central_nodes[:5]:
+            degree = float(node.get("degree", 0.0) or 0.0)
+            betweenness = float(node.get("betweenness", 0.0) or 0.0)
+            hub_accounts.append(
                 {
-                    "account_id": "user_abc",
-                    "influence_score": 0.9,
-                    "follower_count": 150000,
-                    "account_type": "influencer"
+                    "account_id": str(node.get("id", "unknown")),
+                    "influence_score": round(max(degree, betweenness), 2),
+                    "follower_count": 0,
+                    "account_type": "general",
                 }
-            ],
-            "retweet_network_metrics": {"centralization": 0.7, "avg_degree": 15.3},
-            "cascade_pattern": "viral",
-            "estimated_origin_time": "2026-01-10T09:30:00Z",
-            "key_propagation_paths": ["인플루언서A → 팬계정B → 일반유저들"]
+            )
+
+        ts_candidates = []
+        for msg in messages:
+            ts = (msg or {}).get("timestamp")
+            if ts:
+                ts_candidates.append(str(ts))
+        estimated_origin_time = min(ts_candidates) if ts_candidates else None
+
+        result = {
+            "trigger_source": raw.get("trigger_source", "organic"),
+            "hub_accounts": hub_accounts,
+            "retweet_network_metrics": {
+                "centralization": float((raw.get("retweet_network_metrics") or {}).get("centralization", 0.0) or 0.0),
+                "avg_degree": float((raw.get("retweet_network_metrics") or {}).get("avg_degree", 0.0) or 0.0),
+            },
+            "cascade_pattern": raw.get("cascade_pattern", "echo_chamber"),
+            "estimated_origin_time": estimated_origin_time,
+            "key_propagation_paths": list(raw.get("key_propagation_paths") or []),
         }
 
         state["causality_result"] = result
-        _update_node_insight(state, "causality", f"{result['trigger_source']} 주도, {result['cascade_pattern']} 패턴")
+        _update_node_insight(
+            state,
+            "causality",
+            f"{result['trigger_source']} 주도, {result['cascade_pattern']} 패턴, hubs={len(hub_accounts)}",
+        )
         return state
 
     except Exception as e:
         _add_error_log(state, "causality", "exception", str(e))
         state["causality_result"] = None
         _update_node_insight(state, "causality", "인과 분석 실패(예외)")
+        _raise_if_hard_fail(state, "causality", "causality analysis failed", e)
         return state
 
 
@@ -592,27 +840,33 @@ def playbook_node(state: AnalysisState) -> AnalysisState:
 # ============================================================
 
 def exec_brief_node(state: AnalysisState) -> AnalysisState:
-    """브리핑 생성 노드"""
+    """ExecBrief 노드 - Slack 전송을 위한 리포트 생성"""
     _ensure_state_collections(state)
 
     try:
-        workflow_start = datetime.fromisoformat(state["workflow_start_time"].replace("Z", "+00:00"))
-        duration = (datetime.now(workflow_start.tzinfo) - workflow_start).total_seconds()
+        workflow_start_raw = state.get("workflow_start_time")
+        duration = 0.0
+        if workflow_start_raw:
+            workflow_start = datetime.fromisoformat(workflow_start_raw.replace("Z", "+00:00"))
+            duration = (datetime.now(workflow_start.tzinfo) - workflow_start).total_seconds()
 
-        # 각 섹션 요약 생성
         spike_summary = _generate_spike_summary(state)
         sentiment_summary = _generate_sentiment_summary(state)
         legal_summary = _generate_legal_summary(state)
         action_summary = _generate_action_summary(state)
         opportunity_summary = _generate_opportunity_summary(state)
 
-        # 분석 상태 확인
+        playbook = state.get("playbook") or {}
+        playbook_status = "failed"
+        if playbook:
+            playbook_status = "success" if playbook.get("recommended_actions") else "partial"
+
         analysis_status = {
             "spike_analyzer": "success" if state.get("spike_analysis") else "failed",
             "sentiment": "success" if state.get("sentiment_result") else "failed",
             "causality": "success" if state.get("causality_result") else "skipped",
             "legal_rag": "success" if state.get("legal_risk") else "skipped",
-            "playbook": "success" if state.get("playbook") else "failed"
+            "playbook": playbook_status,
         }
 
         user_message = "일부 분석이 제한적으로 제공됩니다." if state.get("error_logs") else None
@@ -620,8 +874,6 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         spike_analysis = state.get("spike_analysis") or {}
         spike_nature = spike_analysis.get("spike_nature", "neutral")
 
-        # Severity score 계산
-        playbook = state.get("playbook") or {}
         priority_map = {"urgent": 10, "high": 7, "medium": 5, "low": 3}
         severity_score = priority_map.get(playbook.get("priority", "low"), 5)
 
@@ -630,10 +882,10 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         trend_map = {"worsening": "escalating", "improving": "declining", "stable": "stable"}
         trend_direction = trend_map.get(sentiment_shift, "stable")
 
-        keyword = state["spike_event"]["keyword"]
-        summary = f"{keyword} - {spike_nature} 이슈 ({playbook.get('situation_type', 'monitoring')})"
+        spike_event = state.get("spike_event") or {}
+        keyword = spike_event.get("keyword", "unknown")
+        summary = f"{keyword} - {spike_nature} ?? ({playbook.get('situation_type', 'monitoring')})"
 
-        # ExecBrief 생성
         state["executive_brief"] = {
             "summary": summary,
             "severity_score": severity_score,
@@ -647,31 +899,58 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
             "analysis_status": analysis_status,
             "user_message": user_message,
             "generated_at": _utcnow_z(),
-            "analysis_duration_seconds": round(duration, 2)
+            "analysis_duration_seconds": round(duration, 2),
+            "dashboard_url": state.get("dashboard_url"),
+            "incident_url": state.get("incident_url"),
         }
 
         _update_node_insight(state, "exec_brief", "generated")
 
-        # Bot Token이 있으면 자동 전송
-        if os.getenv("SLACK_BOT_TOKEN"):
+        bot_token = os.getenv("SLACK_BOT_TOKEN")
+        channel_id = os.getenv("SLACK_CHANNEL_ID")
+        if bot_token and channel_id:
             try:
                 from src.integrations.slack import format_to_slack, send_to_slack
-                
+
                 logger.info("Slack 전송 중...")
                 slack_message = format_to_slack(state)
                 success = send_to_slack(slack_message)
                 if success:
                     logger.info("Slack 전송 완료")
                 else:
-                    logger.warning("Slack 전송 실패") # 워크플로우 계속 진행하도록 경고 로그만 남김
-                
+                    logger.warning("Slack 전송 실패")
+                    _add_error_log(
+                        state,
+                        stage="exec_brief",
+                        error_type="api_error",
+                        message="slack send_to_slack returned False",
+                        details={"channel_id": channel_id},
+                    )
+                    _raise_if_hard_fail(state, "exec_brief", "slack send failed")
             except Exception as e:
-                logger.warning(f"Slack 전송 오류: {e}") # 워크플로우 계속 진행하도록 경고 로그만 남김
-        
+                logger.warning(f"Slack 전송 실패: {e}")
+                _add_error_log(
+                    state,
+                    stage="exec_brief",
+                    error_type="exception",
+                    message=f"slack send exception: {e}",
+                    details={"channel_id": channel_id},
+                )
+                _raise_if_hard_fail(state, "exec_brief", "slack send exception", e)
+        elif bot_token and not channel_id:
+            logger.warning("SLACK CHANNEL ID와 토큰을 확인하세요.")
+            _add_error_log(
+                state,
+                stage="exec_brief",
+                error_type="schema_error",
+                message="SLACK_BOT_TOKEN exists but SLACK_CHANNEL_ID missing",
+            )
+            _raise_if_hard_fail(state, "exec_brief", "slack channel id missing")
+
         return state
 
     except Exception as e:
-        _add_error_log(state, "exec_brief", "exception", f"ExecBrief 생성 에러: {str(e)}")
+        _add_error_log(state, "exec_brief", "exception", f"ExecBrief ?? ??: {str(e)}")
         state["executive_brief"] = {
             "summary": "분석 실패",
             "severity_score": 5,
@@ -687,13 +966,14 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
                 "sentiment": "failed",
                 "causality": "failed",
                 "legal_rag": "failed",
-                "playbook": "failed"
+                "playbook": "failed",
             },
             "user_message": "분석 중 오류가 발생했습니다.",
             "generated_at": _utcnow_z(),
-            "analysis_duration_seconds": 0.0
+            "analysis_duration_seconds": 0.0,
         }
         _update_node_insight(state, "exec_brief", "failed")
+        _raise_if_hard_fail(state, "exec_brief", "exec brief generation failed", e)
         return state
 
 
@@ -751,3 +1031,4 @@ def _generate_opportunity_summary(state: AnalysisState) -> Optional[str]:
     if not opportunities:
         return None
     return ", ".join(opportunities[:2])
+
