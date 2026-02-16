@@ -4,3 +4,6 @@ huggingface_hub>=0.20
 numpy
 pandas
 pytest
+langgraph
+slack_sdk
+
