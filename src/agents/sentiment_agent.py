@@ -412,66 +412,52 @@ class SentimentAgent:
 
         return out
 
-def analyze(
-    self,
-    text: str,
-    analyzed_count: int = 100,
-    lexicon_context: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def analyze(
+        self,
+        text: str,
+        analyzed_count: int = 100,
+        lexicon_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
-    text = self.preprocess(text)
-    probs = self.model_predict(text)
+        text = self.preprocess(text)
+        probs = self.model_predict(text)
 
-    # ===============================
-    # 1. Lexicon context 처리 (MCP 기반)
-    # ===============================
-    if lexicon_context:
-        matches = lexicon_context.get("matches", [])
+        if lexicon_context:
+            matches = lexicon_context.get("matches", [])
+            trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
 
-        trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
+            for m in matches:
+                entry = m.get("entry", {})
+                raw_type = entry.get("type")
 
-        for m in matches:
-            entry = m.get("entry", {})
-            raw_type = entry.get("type")
+                if raw_type == "boycott_action":
+                    trigger_counts["boycott"] += 1
+                elif raw_type in ["fanwar_action", "fanwar_target"]:
+                    trigger_counts["fanwar"] += 1
+                elif raw_type and "meme" in raw_type:
+                    trigger_counts["meme"] += 1
+        else:
+            matches = []
+            trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
 
-            if raw_type == "boycott_action":
-                trigger_counts["boycott"] += 1
-            elif raw_type in ["fanwar_action", "fanwar_target"]:
-                trigger_counts["fanwar"] += 1
-            elif raw_type and "meme" in raw_type:
-                trigger_counts["meme"] += 1
-    else:
-        matches = []
-        trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
+        probs2, route_meta = self.router_second_stage(
+            text,
+            probs,
+            matches,
+            trigger_counts,
+        )
 
-    # ===============================
-    # 2. Router 2차 단계
-    # ===============================
-    probs2, route_meta = self.router_second_stage(
-        text,
-        probs,
-        matches,
-        trigger_counts,
-    )
+        confidence = self.compute_confidence(probs2, analyzed_count)
 
-    # ===============================
-    # 3. Confidence 계산
-    # ===============================
-    confidence = self.compute_confidence(probs2, analyzed_count)
+        out = self.format_output(
+            text,
+            probs2,
+            matches,
+            trigger_counts,
+            confidence,
+        )
 
-    # ===============================
-    # 4. Output 포맷
-    # ===============================
-    out = self.format_output(
-        text,
-        probs2,
-        matches,
-        trigger_counts,
-        confidence,
-    )
-
-    return out, route_meta
-
+        return out, route_meta
 
 def load_model_and_tokenizer(model_path: str, device: str):
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -508,15 +494,6 @@ def build_agent(model_path: str, device: str) -> SentimentAgent:
         tokenizer=tokenizer,
         label2id=label2id,
         id2label=id2label,
-        device=device,
-    ) -> SentimentAgent:
-    model, tokenizer, label2id, id2label = load_model_and_tokenizer(model_path, device)
-    return SentimentAgent(
-        model=model,
-        tokenizer=tokenizer,
-        label2id=label2id,
-        id2label=id2label,
-        lexicon_path=lexicon_path,
         device=device,
     )
 
@@ -602,6 +579,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
