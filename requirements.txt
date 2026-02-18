@@ -1,0 +1,11 @@
+torch>=2.0
+transformers>=4.35
+huggingface_hub>=0.20
+numpy
+pandas
+pytest
+langgraph
+slack_sdk
+langchain-openai
+python-dotenv
+mcp

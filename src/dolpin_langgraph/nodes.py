@@ -342,6 +342,8 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
         # type -> LexiconMatch
         lexicon_matches_result: Dict[str, Dict[str, Any]] = {}
 
+        all_matches = []
+        
         for msg in messages:
             text = (msg or {}).get("text", "")
             if not text:
@@ -349,6 +351,8 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
 
             res = mcp.lexicon_analyze(text) or {}
             matches = res.get("matches", [])  # dict 리턴 기준
+            
+            all_matches.extend(matches)
 
             for match in matches:
                 type_name = match.get("type", "unknown")
@@ -366,6 +370,8 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
                     lexicon_matches_result[type_name]["terms"].append(term)
 
         state["lexicon_matches"] = lexicon_matches_result if lexicon_matches_result else None
+        state["lexicon_lookup_raw"] = {"matches": all_matches} if all_matches else None
+
 
         if lexicon_matches_result:
             top = sorted(
@@ -417,38 +423,21 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             _update_node_insight(state, "sentiment", "텍스트가 비어 있음")
             return state
 
-        model_path_from_state = str(state.get("sentiment_model_path", "") or "").strip()
-        model_path_from_env = str(os.getenv("SENTIMENT_MODEL_PATH", "") or "").strip()
-        model_path = _resolve_existing_path(
-            [
-                model_path_from_state,
-                model_path_from_env,
-                "models/sentiment_model",
-                "sentiment_ft",
-            ]
-        ) or model_path_from_state or model_path_from_env or "models/sentiment_model"
+        model_path = (
+            state.get("sentiment_model_path")
+            or os.getenv("SENTIMENT_MODEL_PATH")
+            or "Aerisbin/sentiment-agent-v1"
+        )
 
-        lexicon_path_from_state = str(state.get("lexicon_path", "") or "").strip()
-        lexicon_path = _resolve_existing_path(
-            [
-                lexicon_path_from_state,
-                "custom_lexicon.csv",
-            ]
-        ) or lexicon_path_from_state or "custom_lexicon.csv"
-
-        device = str(state.get("device", "cpu") or "cpu")
+        device = state.get("device") or "cpu"
 
         try:
-            agent = build_sentiment_agent(model_path, lexicon_path, device)
+            agent = build_sentiment_agent(model_path, device)
         except Exception as e:
             logger.error(
-                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | "
-                "lexicon_path=%s (exists=%s) | device=%s",
+                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | device=%s",
                 e,
                 model_path,
-                Path(model_path).exists(),
-                lexicon_path,
-                Path(lexicon_path).exists(),
                 device,
             )
             _add_error_log(
@@ -458,9 +447,6 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
                 message=f"sentiment init failed: {e}",
                 details={
                     "model_path": model_path,
-                    "model_exists": Path(model_path).exists(),
-                    "lexicon_path": lexicon_path,
-                    "lexicon_exists": Path(lexicon_path).exists(),
                     "device": device,
                 },
             )
@@ -471,7 +457,12 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
 
         # 감정 분석 실행
         analyzed_count = len(messages)
-        result, route_meta = agent.analyze(combined_text, analyzed_count=analyzed_count)
+        lexicon_context = state.get("lexicon_lookup_raw")
+        result, route_meta = agent.analyze(
+            combined_text,
+            analyzed_count=analyzed_count,
+            lexicon_context=lexicon_context,
+        )
 
         # state에 필요한 필드 추가
         result["analyzed_count"] = analyzed_count

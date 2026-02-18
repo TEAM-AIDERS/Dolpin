@@ -104,7 +104,6 @@ class SentimentAgent:
         tokenizer,
         label2id: Dict[str, int],
         id2label: Dict[int, str],
-        lexicon_path: str,
         device: str = "cpu",
         meme_weight: float = 0.15,
         fanwar_weight: float = 0.20,
@@ -126,40 +125,6 @@ class SentimentAgent:
 
         self.sentiment_map = sentiment_map or DEFAULT_SENTIMENT_MAP
         self.trigger_map = trigger_map or DEFAULT_TRIGGER_MAP
-
-        lex = _load_csv_with_fallback(lexicon_path)
-
-        rename_map = {
-            "term": "term",
-            "normalized_form": "normalized_form",
-            "type": "type",
-            "sentiment_label": "sentiment_label",
-            "trigger_type": "trigger_type",
-            "action_strength": "action_strength",
-            "fandom_scope": "fandom_scope",
-            "target_entity": "target_entity",
-            "polarity": "polarity",
-            "intensity": "intensity",
-            "risk_flag": "risk_flag",
-            "example_text": "example_text",
-            "usage_mode": "usage_mode",
-            "notes": "notes",
-            "created_at": "created_at",
-            "updated_at": "updated_at",
-        }
-        lex = lex.rename(columns={k: v for k, v in rename_map.items() if k in lex.columns})
-
-        required = {"term", "sentiment_label"}
-        if not required.issubset(set(lex.columns)):
-            raise ValueError(f"Lexicon CSV must include {required}, got {set(lex.columns)}")
-
-        if "trigger_type" not in lex.columns:
-            lex["trigger_type"] = ""
-
-        if "normalized_form" not in lex.columns:
-            lex["normalized_form"] = lex["term"]
-
-        self.lexicon = lex
 
         missing_labels = [l for l in LABELS if l not in self.label2id]
         if missing_labels:
@@ -192,70 +157,6 @@ class SentimentAgent:
         probs = _normalize_probs(probs)
         return probs
 
-    def _lexicon_match(self, text: str) -> Tuple[List[Dict[str, Any]], Dict[str, int], Dict[str, int]]:
-        matches: List[Dict[str, Any]] = []
-        sentiment_counts = {k: 0 for k in LABELS}
-        trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
-
-        for _, row in self.lexicon.iterrows():
-            term = str(row["term"])
-            norm = str(row.get("normalized_form", term))
-            sraw = str(row.get("sentiment_label", ""))
-            raw_type = str(row.get("type", ""))
-
-            # type → 6개 감정 라벨 직접 매핑 (sentiment_label 대신)
-            # sentiment_label은 의미적 역할일 뿐, 6개 감정 분류와는 다른 차원
-            TYPE_TO_SENTIMENT = {
-                # 보이콧 (감정: boycott)
-                "boycott_action": "boycott",
-                # 팬웨어 (감정: fanwar)
-                "fanwar_action": "fanwar",
-                "fanwar_target": "fanwar",
-                # 밈 (감정: meme)
-                "meme_positive": "meme",
-                "meme_negative": "meme",
-                "meme_slang": "meme",
-                # 중립/컨텍스트 (감정: neutral)
-                "context_marker": "neutral",
-                "fandom_slang": "neutral",
-                "irony_cue": "neutral",          # irony는 추후 별도 처리
-                "search_evasion": "neutral",     # reference는 중립
-                # 지지 (감정: positive)
-                "support_action": "positive",
-            }
-
-            if not term:
-                continue
-
-            if term in text or (norm and norm in text):
-                # type으로 직접 감정 매핑 (sentiment_label 무시)
-                mapped_sent = TYPE_TO_SENTIMENT.get(raw_type, None)
-
-                if mapped_sent is not None and mapped_sent in LABEL_SET:
-                    sentiment_counts[mapped_sent] += 1
-
-                matches.append(
-                    {
-                        "term": term,
-                        "normalized_form": norm,
-                        "sentiment_label": sraw,                    # 참고용만
-                        "mapped_sentiment": mapped_sent,            # type 기반
-                        "type": raw_type,                           # 원본 type
-                        "polarity": row.get("polarity", None),
-                        "intensity": row.get("intensity", None),
-                        "risk_flag": row.get("risk_flag", None),
-                    }
-                )
-        
-        # trigger_counts 계산 (matches에서 감정별로 집계)
-        # router_second_stage에서 사용하는 boycott/fanwar/meme 신호
-        trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
-        for match in matches:
-            sent = match.get("mapped_sentiment")
-            if sent in trigger_counts:
-                trigger_counts[sent] += 1
-
-        return matches, sentiment_counts, trigger_counts
 
     def lexicon_adjust(self, probs: np.ndarray, trigger_counts: Dict[str, int]) -> np.ndarray:
         p = probs.copy()
@@ -511,20 +412,63 @@ class SentimentAgent:
 
         return out
 
+    def analyze(
+        self,
+        text: str,
+        analyzed_count: int = 100,
+        lexicon_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
-    def analyze(self, text: str, analyzed_count: int = 100) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         text = self.preprocess(text)
         probs = self.model_predict(text)
-        matches, _, trigger_counts = self._lexicon_match(text)
-        probs2, route_meta = self.router_second_stage(text, probs, matches, trigger_counts)
+
+        if lexicon_context:
+            matches = lexicon_context.get("matches", [])
+            trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
+
+            for m in matches:
+                entry = m.get("entry", {})
+                raw_type = (
+                    m.get("entry", {}).get("type")
+                    or m.get("type")
+                )
+
+                if raw_type == "boycott_action":
+                    trigger_counts["boycott"] += 1
+                elif raw_type in ["fanwar_action", "fanwar_target"]:
+                    trigger_counts["fanwar"] += 1
+                elif raw_type and "meme" in raw_type:
+                    trigger_counts["meme"] += 1
+        else:
+            matches = []
+            trigger_counts = {"meme": 0, "boycott": 0, "fanwar": 0}
+
+        probs2, route_meta = self.router_second_stage(
+            text,
+            probs,
+            matches,
+            trigger_counts,
+        )
+
         confidence = self.compute_confidence(probs2, analyzed_count)
-        out = self.format_output(text, probs2, matches, trigger_counts, confidence)
+
+        out = self.format_output(
+            text,
+            probs2,
+            matches,
+            trigger_counts,
+            confidence,
+        )
+
         return out, route_meta
 
-
 def load_model_and_tokenizer(model_path: str, device: str):
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForSequenceClassification.from_pretrained(model_path)
+    hf_token = os.getenv("HF_TOKEN")
+    if model_path.startswith("Aerisbin/") and not hf_token:
+        raise RuntimeError("HF_TOKEN is required for private model access.")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, token=hf_token)
+    model = AutoModelForSequenceClassification.from_pretrained(model_path, token=hf_token)
 
     cfg = model.config
 
@@ -550,17 +494,15 @@ def load_model_and_tokenizer(model_path: str, device: str):
     return model, tokenizer, norm, id2label
 
 
-def build_agent(model_path: str, lexicon_path: str, device: str) -> SentimentAgent:
+def build_agent(model_path: str, device: str) -> SentimentAgent:
     model, tokenizer, label2id, id2label = load_model_and_tokenizer(model_path, device)
     return SentimentAgent(
         model=model,
         tokenizer=tokenizer,
         label2id=label2id,
         id2label=id2label,
-        lexicon_path=lexicon_path,
         device=device,
     )
-
 
 def mock_inputs() -> List[Dict[str, Any]]:
     return [
@@ -609,18 +551,14 @@ def main():
 
     p = argparse.ArgumentParser()
     p.add_argument("--model_path", type=str, required=True)
-    p.add_argument("--lexicon_path", type=str, required=True)
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument("--save_json", type=str, default="")
     args = p.parse_args()
 
     agent = build_agent(
         model_path=args.model_path,
-        lexicon_path=args.lexicon_path,
         device=args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu")
     )
-
-
 
     test_results = run_tests(agent)
 
@@ -646,5 +584,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 

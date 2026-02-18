@@ -1,0 +1,39 @@
+name: Dolphin CI
+
+on:
+  push:
+    branches: [ main, feat/** ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      SENTIMENT_MODEL_PATH: ${{ secrets.SENTIMENT_MODEL_PATH }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install huggingface_hub
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+
+      - name: Debug env
+        run: |
+          echo "Model path: $SENTIMENT_MODEL_PATH"
+          python -c "import os; print('HF_TOKEN exists:', bool(os.getenv('HF_TOKEN')))"
+
+      - name: Run tests
+        run: pytest
+

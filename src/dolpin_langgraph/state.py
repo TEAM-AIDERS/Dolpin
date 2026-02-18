@@ -340,6 +340,11 @@ class AnalysisState(TypedDict):
     # 메타데이터
     trace_id: str
     workflow_start_time: str  # ISO 8601
+
+    # 모델 설정 (추가)
+    sentiment_model_path: Optional[str]
+    device: Optional[str]
+    lexicon_lookup_raw: Optional[Dict[str, Any]]
     
     # Router 결정
     route1_decision: Optional[Literal["skip", "analyze"]]
