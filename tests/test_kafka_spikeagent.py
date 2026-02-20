@@ -14,7 +14,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from src.dolpin_langgraph.nodes import spike_analyzer_node
-from src.pipeline.kafka_producer import KafkaProducer
 from src.schemas.kafka_schema import ContentData, KafkaMessage
 
 
@@ -62,6 +61,7 @@ def test_real_kafka_to_spikeagent():
     if not _kafka_ready():
         pytest.skip("Kafka env vars are missing.")
     Consumer = pytest.importorskip("confluent_kafka").Consumer
+    from src.pipeline.kafka_producer import KafkaProducer
 
     topic = os.getenv("KAFKA_TOPIC")
     keyword = f"e2e-spike-{uuid.uuid4().hex[:8]}"
