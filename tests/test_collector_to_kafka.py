@@ -6,7 +6,6 @@ import time
 import uuid
 
 import pytest
-from confluent_kafka import Consumer
 from dotenv import load_dotenv
 
 # Allow direct execution: `python tests/test_collector_to_kafka.py`
@@ -32,6 +31,7 @@ def test_real_collector_to_kafka():
         pytest.skip("Set RUN_REAL_COLLECTOR=1 to run real collector->Kafka integration test.")
     if not _kafka_ready():
         pytest.skip("Kafka env vars are missing.")
+    Consumer = pytest.importorskip("confluent_kafka").Consumer
 
     topic = os.getenv("KAFKA_TOPIC")
     keyword = os.getenv("COLLECTOR_TEST_KEYWORD", "").strip() or "NCT WISH"

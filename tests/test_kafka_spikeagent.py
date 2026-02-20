@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import pytest
-from confluent_kafka import Consumer
 
 # Allow direct execution: `python tests/test_kafka_spikeagent.py`
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -62,6 +61,7 @@ def test_real_kafka_to_spikeagent():
         pytest.skip("Set RUN_REAL_KAFKA=1 to run real Kafka integration test.")
     if not _kafka_ready():
         pytest.skip("Kafka env vars are missing.")
+    Consumer = pytest.importorskip("confluent_kafka").Consumer
 
     topic = os.getenv("KAFKA_TOPIC")
     keyword = f"e2e-spike-{uuid.uuid4().hex[:8]}"
