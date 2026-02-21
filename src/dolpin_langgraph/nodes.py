@@ -2,8 +2,9 @@
 LangGraph 노드 래퍼 함수
 각 에이전트를 호출하고 State를 업데이트합니다.
 
-버전: v2 (260203)
-- state 저장 형태 확장 반영
+버전: v3 (260220)
+- SpikeAnalyzerAgent 위임으로 리팩토링 (B안)
+- _SPIKE_ANALYZER_AGENT lazy init으로 테스트 안전성 확보
 - node_insights 키를 graph node id와 동일하게 통일
 - lexicon_lookup는 MCPClient singleton(get_mcp_client) 사용
 """
@@ -49,7 +50,7 @@ def _add_error_log(
     _ensure_state_collections(state)
 
     error_log: ErrorLog = {
-        "stage": stage,  # state.py Literal에 맞춰야 함
+        "stage": stage,
         "error_type": error_type,
         "message": message,
         "occurred_at": datetime.utcnow().isoformat() + "Z",
@@ -98,150 +99,71 @@ def _raise_if_hard_fail(state: AnalysisState, stage: str, message: str, exc: Opt
     raise RuntimeError(f"[hard-fail:{stage}] {message}") from exc
 
 
-
 # ============================================================
 # spike_analyzer
 # ============================================================
 
+# Lazy init: import 시점이 아닌 첫 호출 시점에 초기화
+# → 테스트 환경에서 MCP/GCP 없어도 import 자체는 성공
+_SPIKE_ANALYZER_AGENT = None
+
+def _get_spike_agent():
+    """SpikeAnalyzerAgent 싱글톤 (lazy init)"""
+    global _SPIKE_ANALYZER_AGENT
+    if _SPIKE_ANALYZER_AGENT is None:
+        from src.agents.spike_analyzer import SpikeAnalyzerAgent
+        _SPIKE_ANALYZER_AGENT = SpikeAnalyzerAgent()
+    return _SPIKE_ANALYZER_AGENT
+
+
 def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
     """
     급등 분석 노드
-    - spike_event 기반으로 significance/viral/actionability 계산
-    - 임계값 override 지원:
-      - significant_spike_threshold (default: 2.0)
-      - breakout_spike_threshold (default: 3.0)
+    - SpikeAnalyzerAgent.analyze()에 위임 (B안 리팩토링)
+    - state["spike_event"] → SpikeEvent 변환 → analyze() → state["spike_analysis"] 저장
+    - 임계값 override 지원 (state에서 주입 가능):
+        - significant_spike_threshold (default: 3.0)
+        - breakout_spike_threshold (default: 5.0)
     """
     _ensure_state_collections(state)
 
     try:
         spike_event = state.get("spike_event") or {}
-        messages = spike_event.get("messages", []) or []
-        keyword = str(spike_event.get("keyword", "unknown"))
 
-        baseline = int(spike_event.get("baseline", 0) or 0)
-        current_volume = int(spike_event.get("current_volume", 0) or 0)
-        spike_rate_raw = float(spike_event.get("spike_rate", 0.0) or 0.0)
-        if spike_rate_raw <= 0 and baseline > 0 and current_volume > 0:
-            spike_rate_raw = current_volume / baseline
-        spike_rate = round(float(spike_rate_raw), 2)
+        # ── Agent 호출 ────────────────────────────────────────
+        result = _get_spike_agent().analyze(spike_event)
 
-        sig_threshold = float(state.get("significant_spike_threshold", 2.0) or 2.0)
-        breakout_threshold = float(state.get("breakout_spike_threshold", 3.0) or 3.0)
-        is_significant = spike_rate >= sig_threshold
-        has_breakout = spike_rate >= breakout_threshold
+        # ── state 기반 threshold override ────────────────────
+        # Agent 내부 threshold와 별도로, state에서 주입된 값으로 재판정 가능
+        sig_threshold = float(state.get("significant_spike_threshold", 3.0) or 3.0)
+        breakout_threshold = float(state.get("breakout_spike_threshold", 5.0) or 5.0)
 
-        source_set = {str((m or {}).get("source", "")).strip() for m in messages if (m or {}).get("source")}
-        cross_platform = sorted(source_set)
-
-        engagement_sum = 0
-        for msg in messages:
-            metrics = (msg or {}).get("metrics", {}) or {}
-            engagement_sum += int(metrics.get("likes", 0) or 0)
-            engagement_sum += int(metrics.get("retweets", 0) or 0)
-            engagement_sum += int(metrics.get("replies", 0) or 0)
-
-        non_ko_count = 0
-        for msg in messages:
-            lang = str((msg or {}).get("detected_language", "")).lower().strip()
-            if lang and lang not in ("ko", "kr"):
-                non_ko_count += 1
-        international_reach = round(non_ko_count / max(1, len(messages)), 2)
-
-        positive_cues = ("좋", "최고", "감사", "응원", "축하", "사랑", "행복", "대박")
-        negative_cues = ("불매", "보이콧", "실망", "화나", "논란", "문제", "싫", "최악", "탈덕")
-        positive_hits = 0
-        negative_hits = 0
-        for msg in messages:
-            text = str((msg or {}).get("text", "")).lower()
-            if any(cue in text for cue in positive_cues):
-                positive_hits += 1
-            if any(cue in text for cue in negative_cues):
-                negative_hits += 1
-
-        if positive_hits > 0 and negative_hits > 0:
-            spike_nature = "mixed"
-        elif negative_hits > positive_hits:
-            spike_nature = "negative"
-        elif positive_hits > 0:
-            spike_nature = "positive"
-        else:
-            spike_nature = "neutral"
-
-        timestamp_candidates = []
-        for msg in messages:
-            ts = (msg or {}).get("timestamp")
-            if ts:
-                timestamp_candidates.append(str(ts))
-        detected_at = spike_event.get("detected_at")
-        if detected_at:
-            timestamp_candidates.append(str(detected_at))
-        peak_timestamp = max(timestamp_candidates) if timestamp_candidates else _utcnow_z()
-
-        duration_minutes = 0
-        if len(messages) >= 2:
-            parsed = []
-            for msg in messages:
-                ts = (msg or {}).get("timestamp")
-                if not ts:
-                    continue
-                try:
-                    parsed.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")))
-                except Exception:
-                    continue
-            if len(parsed) >= 2:
-                duration_minutes = int((max(parsed) - min(parsed)).total_seconds() / 60)
-
-        actionability_score = (
-            0.45 * min(1.0, spike_rate / 5.0)
-            + 0.25 * min(1.0, len(messages) / 50.0)
-            + 0.20 * (1.0 if has_breakout else 0.0)
-            + 0.10 * min(1.0, len(cross_platform) / 3.0)
+        spike_rate = float(result.get("spike_rate", 0.0) or 0.0)
+        result["is_significant"] = bool(
+            result.get("is_significant")
+            or spike_rate >= sig_threshold
         )
-        actionability_score = round(max(0.0, min(1.0, actionability_score)), 2)
 
-        confidence = (
-            0.50
-            + 0.20 * min(1.0, len(messages) / 30.0)
-            + 0.20 * (1.0 if baseline > 0 and current_volume > 0 else 0.0)
-            + 0.10 * min(1.0, len(cross_platform) / 2.0)
+        viral = result.get("viral_indicators", {}) or {}
+        has_breakout = bool(
+            viral.get("has_breakout")
+            or spike_rate >= breakout_threshold
         )
-        confidence = round(max(0.0, min(1.0, confidence)), 2)
-
-        data_completeness = "confirmed" if (baseline > 0 and current_volume > 0 and messages) else "partial"
-        partial_data_warning = None
-        if data_completeness != "confirmed":
-            partial_data_warning = "incomplete spike_event fields"
-
-        max_rise_rate = "Breakout" if has_breakout else f"+{max(0.0, (spike_rate - 1.0) * 100):.0f}%"
-        breakout_queries = [keyword] if has_breakout and keyword != "unknown" else []
-        is_trending = has_breakout or len(cross_platform) >= 2
-
-        result = {
-            "is_significant": is_significant,
-            "spike_rate": spike_rate,
-            "spike_type": "organic",
-            "spike_nature": spike_nature,
-            "peak_timestamp": peak_timestamp,
-            "duration_minutes": duration_minutes,
-            "confidence": confidence,
-            "actionability_score": actionability_score,
-            "data_completeness": data_completeness,
-            "partial_data_warning": partial_data_warning,
-            "viral_indicators": {
-                "is_trending": is_trending,
-                "has_breakout": has_breakout,
-                "max_rise_rate": max_rise_rate,
-                "breakout_queries": breakout_queries,
-                "cross_platform": cross_platform,
-                "international_reach": international_reach
-            }
-        }
+        viral["has_breakout"] = has_breakout
+        viral["is_trending"] = bool(viral.get("is_trending") or has_breakout)
+        if has_breakout and not viral.get("breakout_queries"):
+            keyword = str(spike_event.get("keyword", "unknown"))
+            viral["breakout_queries"] = [keyword] if keyword != "unknown" else []
+        result["viral_indicators"] = viral
 
         state["spike_analysis"] = result
 
+        # ── insight 생성 ──────────────────────────────────────
+        messages = spike_event.get("messages", []) or []
         insight = (
             f"{result['spike_rate']}x spike, nature={result['spike_nature']}, "
-            f"actionability={result['actionability_score']}, engagement={engagement_sum}"
+            f"actionability={result['actionability_score']}, "
+            f"confidence={result['confidence']}, messages={len(messages)}"
         )
         if result.get("partial_data_warning"):
             insight += f", {result['partial_data_warning']}"
@@ -258,8 +180,6 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
             message=str(e),
             details={"keyword": state.get("spike_event", {}).get("keyword")}
         )
-
-        # 실패 시에도 기본값 설정
         state["spike_analysis"] = {
             "is_significant": False,
             "spike_rate": 0.0,
@@ -282,6 +202,9 @@ def spike_analyzer_node(state: AnalysisState) -> AnalysisState:
         }
         _update_node_insight(state, "spike_analyzer", "급등 분석 중 오류가 발생했습니다.")
         return state
+
+
+# ============================================================
 # router1
 # ============================================================
 
@@ -341,17 +264,16 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
 
         # type -> LexiconMatch
         lexicon_matches_result: Dict[str, Dict[str, Any]] = {}
-
         all_matches = []
-        
+
         for msg in messages:
             text = (msg or {}).get("text", "")
             if not text:
                 continue
 
             res = mcp.lexicon_analyze(text) or {}
-            matches = res.get("matches", [])  # dict 리턴 기준
-            
+            matches = res.get("matches", [])
+
             all_matches.extend(matches)
 
             for match in matches:
@@ -372,7 +294,6 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
         state["lexicon_matches"] = lexicon_matches_result if lexicon_matches_result else None
         state["lexicon_lookup_raw"] = {"matches": all_matches} if all_matches else None
 
-
         if lexicon_matches_result:
             top = sorted(
                 lexicon_matches_result.items(),
@@ -390,7 +311,7 @@ def lexicon_lookup_node(state: AnalysisState) -> AnalysisState:
     except Exception as e:
         _add_error_log(
             state,
-            stage="lexicon_lookup",  
+            stage="lexicon_lookup",
             error_type="exception",
             message=f"LexiconLookup 실패: {str(e)}",
             details={"keyword": state.get("spike_event", {}).get("keyword")}
@@ -428,27 +349,21 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
             or os.getenv("SENTIMENT_MODEL_PATH")
             or "Aerisbin/sentiment-agent-v1"
         )
-
         device = state.get("device") or "cpu"
 
         try:
             agent = build_sentiment_agent(model_path, device)
         except Exception as e:
             logger.error(
-                "SentimentAgent init failed: %s | model_path=%s (exists=%s) | device=%s",
-                e,
-                model_path,
-                device,
+                "SentimentAgent init failed: %s | model_path=%s | device=%s",
+                e, model_path, device,
             )
             _add_error_log(
                 state,
                 stage="sentiment",
                 error_type="exception",
                 message=f"sentiment init failed: {e}",
-                details={
-                    "model_path": model_path,
-                    "device": device,
-                },
+                details={"model_path": model_path, "device": device},
             )
             state["sentiment_result"] = None
             _update_node_insight(state, "sentiment", "모델 초기화 실패")
@@ -512,7 +427,7 @@ def sentiment_node(state: AnalysisState) -> AnalysisState:
 def router2_node(state: AnalysisState) -> AnalysisState:
     """
     Router 2차: Sentiment Only vs Full Analysis
-    
+
     Note: positive_viral_detected도 여기서 설정 (Router 3차에서 재사용)
     """
     _ensure_state_collections(state)
@@ -688,14 +603,13 @@ def router3_node(state: AnalysisState) -> AnalysisState:
 # legal_rag
 # ============================================================
 
-
 async def legal_rag_node(state: AnalysisState) -> AnalysisState:
     try:
         # 1️. LegalRAGInput 구성
         spike_event = state["spike_event"]
         spike_analysis = state.get("spike_analysis")
         sentiment_result = state.get("sentiment_result")
-        
+
         messages_text = [m["text"] for m in spike_event["messages"]]
 
         legal_input: LegalRAGInput = {
@@ -726,18 +640,15 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
         }
 
     except Exception as e:
-        # Fallback LegalRiskResult 
         fallback_result: LegalRiskResult = {
             "overall_risk_level": "medium",
             "clearance_status": "review_needed",
-            "confidence": 0.2,  # 매우 낮은 신뢰도
+            "confidence": 0.2,
             "rag_required": True,
             "rag_performed": False,
             "rag_confidence": None,
             "risk_assessment": None,
-            "recommended_action": [
-                "법률 분석 실패 - 내부 법무팀 수동 검토 필요"
-            ],
+            "recommended_action": ["법률 분석 실패 - 내부 법무팀 수동 검토 필요"],
             "referenced_documents": [],
             "signals": None
         }
@@ -753,7 +664,7 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
 
         return {
             **state,
-            "legal_risk": fallback_result, 
+            "legal_risk": fallback_result,
             "error_logs": state.get("error_logs", []) + [error_log],
             "node_insights": {
                 **state.get("node_insights", {}),
@@ -769,15 +680,14 @@ async def legal_rag_node(state: AnalysisState) -> AnalysisState:
 def amplification_node(state: AnalysisState) -> AnalysisState:
     """긍정 바이럴 기회 요약 노드"""
     _ensure_state_collections(state)
-    
+
     try:
         causality = state.get("causality_result") or {}
         sentiment = state.get("sentiment_result") or {}
         spike = state.get("spike_analysis") or {}
-        
+
         viral_indicators = spike.get("viral_indicators", {})
-        
-        # ===== Hub Accounts =====
+
         hub_accounts = []
         for hub in (causality.get("hub_accounts") or [])[:5]:
             hub_accounts.append({
@@ -786,39 +696,31 @@ def amplification_node(state: AnalysisState) -> AnalysisState:
                 "account_type": hub.get("account_type", "general"),
                 "follower_count": hub.get("follower_count", 0)
             })
-        
-        # ===== Representative Messages =====
+
         support_msgs = (sentiment.get("representative_messages", {}).get("support") or [])
-        representative_messages = [
-            {"text": msg}  # text만!
-            for msg in support_msgs[:5]
-        ]
-        
-        # ===== 결과 =====
+        representative_messages = [{"text": msg} for msg in support_msgs[:5]]
+
         result = {
             "top_platforms": viral_indicators.get("cross_platform", ["twitter"]),
             "hub_accounts": hub_accounts,
             "representative_messages": representative_messages
         }
-        
+
         state["amplification_summary"] = result
-        
-        platform_count = len(result["top_platforms"])
-        hub_count = len(result["hub_accounts"])
-        msg_count = len(result["representative_messages"])
+
         _update_node_insight(
-            state, 
-            "amplification", 
-            f"{platform_count}개 플랫폼, {hub_count}개 허브, {msg_count}개 메시지"
+            state,
+            "amplification",
+            f"{len(result['top_platforms'])}개 플랫폼, {len(hub_accounts)}개 허브, {len(representative_messages)}개 메시지"
         )
-        
         return state
-    
+
     except Exception as e:
         _add_error_log(state, "amplification", "exception", str(e))
         state["amplification_summary"] = None
         _update_node_insight(state, "amplification", "실패")
         return state
+
 
 # ============================================================
 # playbook
@@ -833,7 +735,6 @@ def playbook_node(state: AnalysisState) -> AnalysisState:
 
         route2 = state.get("route2_decision")
         api_key_exists = bool(os.getenv("OPENAI_API_KEY"))
-
         # full_analysis 경로 → LLM 사용
         use_llm = (route2 == "full_analysis" and api_key_exists)
 
@@ -903,7 +804,7 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
 
         spike_event = state.get("spike_event") or {}
         keyword = spike_event.get("keyword", "unknown")
-        summary = f"{keyword} - {spike_nature} ?? ({playbook.get('situation_type', 'monitoring')})"
+        summary = f"{keyword} - {spike_nature} ({playbook.get('situation_type', 'monitoring')})"
 
         state["executive_brief"] = {
             "summary": summary,
@@ -930,7 +831,6 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
         if bot_token and channel_id:
             try:
                 from src.integrations.slack import format_to_slack, send_to_slack
-
                 logger.info("Slack 전송 중...")
                 slack_message = format_to_slack(state)
                 success = send_to_slack(slack_message)
@@ -938,38 +838,24 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
                     logger.info("Slack 전송 완료")
                 else:
                     logger.warning("Slack 전송 실패")
-                    _add_error_log(
-                        state,
-                        stage="exec_brief",
-                        error_type="api_error",
-                        message="slack send_to_slack returned False",
-                        details={"channel_id": channel_id},
-                    )
+                    _add_error_log(state, "exec_brief", "api_error", "slack send_to_slack returned False",
+                                   details={"channel_id": channel_id})
                     _raise_if_hard_fail(state, "exec_brief", "slack send failed")
             except Exception as e:
                 logger.warning(f"Slack 전송 실패: {e}")
-                _add_error_log(
-                    state,
-                    stage="exec_brief",
-                    error_type="exception",
-                    message=f"slack send exception: {e}",
-                    details={"channel_id": channel_id},
-                )
+                _add_error_log(state, "exec_brief", "exception", f"slack send exception: {e}",
+                               details={"channel_id": channel_id})
                 _raise_if_hard_fail(state, "exec_brief", "slack send exception", e)
         elif bot_token and not channel_id:
             logger.warning("SLACK CHANNEL ID와 토큰을 확인하세요.")
-            _add_error_log(
-                state,
-                stage="exec_brief",
-                error_type="schema_error",
-                message="SLACK_BOT_TOKEN exists but SLACK_CHANNEL_ID missing",
-            )
+            _add_error_log(state, "exec_brief", "schema_error",
+                           "SLACK_BOT_TOKEN exists but SLACK_CHANNEL_ID missing")
             _raise_if_hard_fail(state, "exec_brief", "slack channel id missing")
 
         return state
 
     except Exception as e:
-        _add_error_log(state, "exec_brief", "exception", f"ExecBrief ?? ??: {str(e)}")
+        _add_error_log(state, "exec_brief", "exception", f"ExecBrief 생성 실패: {str(e)}")
         state["executive_brief"] = {
             "summary": "분석 실패",
             "severity_score": 5,
@@ -1050,4 +936,3 @@ def _generate_opportunity_summary(state: AnalysisState) -> Optional[str]:
     if not opportunities:
         return None
     return ", ".join(opportunities[:2])
-
