@@ -75,7 +75,7 @@ class InstizCollector:
         
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=False)
+                browser = await p.chromium.launch(headless=True)
                 context = await browser.new_context(
                     # 실제 브라우저처럼 지정해서 차단 회피 
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
