@@ -32,7 +32,7 @@ class GoogleTrendsCollector:
             # 가장 마지막 시간의 관심도 점수 추출 
             latest_row = df_over_time.iloc[-1]
             interest_score = int(latest_row[keyword])
-            is_partial = bool(latest_row['is_partial'])
+            is_partial = bool(latest_row.get('is_partial', False))
             
             # 2. 관련 급상승 검색어 수집
             related_queries = self.pytrends.related_queries()

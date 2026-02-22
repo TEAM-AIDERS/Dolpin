@@ -1,5 +1,3 @@
-import uuid
-import datetime
 import os
 import logging
 from urllib.parse import quote
@@ -40,22 +38,33 @@ class InstizCollector:
             """)
             await page.wait_for_timeout(1500)
             
-            await page.evaluate(f"""
-                document.getElementById('user_id').value = '{self.user_id}';
-                document.getElementById('password').value = '{self.user_pw}';
-            """)
-            
+            # 입력
+            await page.fill('#user_id', self.user_id)
+            await page.fill('#password', self.user_pw)
             await page.wait_for_timeout(500)
             
-            await page.evaluate("""
-                document.querySelector('input[type="submit"].login_go').click();
-            """)
+            # ← 중요: 페이지 로드 대기하면서 클릭
+            try:
+                async with page.expect_navigation(timeout=30000):
+                    await page.click('input[type="submit"].login_go')
+            except:
+                # Navigation이 안 되면 그냥 클릭만
+                await page.click('input[type="submit"].login_go')
             
-            await page.wait_for_timeout(6000)
-            
+            # 충분히 대기 (쿠키 저장)
+            await page.wait_for_timeout(5000)
+            current_url = page.url
             page_text = await page.content()
-            return "autologinok=1" in page_text
             
+            # 개선된 로그인 확인
+            is_logged_in = "autologinok=1" in page_text or "autologinok=1" in current_url
+            
+            if is_logged_in:
+                logger.info("✅ 로그인 성공!")
+            else:
+                logger.error("❌ 로그인 실패!")
+            
+            return is_logged_in
         except Exception as e:
             logger.error(f"로그인 중 오류 발생: {e}")
             return False
@@ -66,7 +75,7 @@ class InstizCollector:
         
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(headless=False)
                 context = await browser.new_context(
                     # 실제 브라우저처럼 지정해서 차단 회피 
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -80,7 +89,7 @@ class InstizCollector:
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
                 await page.wait_for_timeout(4000)
                 
-                # 게시글 목록 테이블에서 제목 링크들  선택 
+                # 게시글 목록 테이블에서 제목 링크들 선택 
                 post_links = await page.locator("tr[id^='list'] td.listsubject a").all()
 
                 detail_urls = []
@@ -152,4 +161,4 @@ class InstizCollector:
             if browser:
                 await browser.close()
 
-        
+        return results
