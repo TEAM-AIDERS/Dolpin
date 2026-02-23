@@ -8,7 +8,6 @@ import uuid
 import pytest
 from dotenv import load_dotenv
 
-# Allow direct execution: `python tests/test_collector_to_kafka.py`
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)

@@ -3,9 +3,14 @@ transformers>=4.35
 huggingface_hub>=0.20
 numpy
 pandas
-pytest
+pytest>=9.0.0
+pytest-asyncio>=0.21.0
 langgraph
 slack_sdk
 langchain-openai
 python-dotenv
 mcp
+playwright>=1.40.0
+pytrends>=4.9.2
+confluent-kafka>=2.0.0
+pydantic>=2.0.0
