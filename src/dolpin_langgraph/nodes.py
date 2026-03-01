@@ -22,7 +22,6 @@ from .edges import (
 )
 
 from src.agents.sentiment_agent import build_agent as build_sentiment_agent
-from src.agents.legalrag_agent import check_legal_risk
 
 logger = logging.getLogger(__name__)
 
@@ -605,6 +604,7 @@ def router3_node(state: AnalysisState) -> AnalysisState:
 
 async def legal_rag_node(state: AnalysisState) -> AnalysisState:
     try:
+        from src.agents.legalrag_agent import check_legal_risk 
         # 1️. LegalRAGInput 구성
         spike_event = state["spike_event"]
         spike_analysis = state.get("spike_analysis")
