@@ -5,10 +5,17 @@ import asyncio
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
+import sys 
+sys.path.insert(0, os.path.dirname(__file__))
+
 from embedder import SMCEmbeddings
 from pinecone import Pinecone
 import mcp.types as types
 from mcp.server import Server
+from mcp.server.models import InitializationOptions
+from mcp import types 
+from pydantic import BaseModel
+
 import time
 from mcp.server.stdio import stdio_server
 
@@ -211,7 +218,7 @@ class LegalSearcher(ABC):
                 embedding = [0.0] * 1536
             
             # Pinecone 쿼리
-            async def query_pinecone():
+            def query_pinecone():
                 return self.index.query( 
                     vector=embedding,
                     top_k=top_k,
@@ -570,7 +577,9 @@ def register_legal_tools():
             logger.error(f"Tool execution failed: {e}")
             return [types.TextContent(type="text", text=f"Error: {str(e)}")]
 
-
+class NotificationOptions(BaseModel):
+    tools_changed: bool = False
+    
 # -- 7. 메인 서버 -- 
 async def main():
     global pinecone_client, embeddings_model
@@ -603,7 +612,10 @@ async def main():
             InitializationOptions(
                 server_name="legal-rag-mcp",
                 server_version="4.0.0",
-                capabilities=server.get_capabilities(),
+                capabilities=server.get_capabilities(
+                notification_options=NotificationOptions(),
+                experimental_capabilities=None
+            ),
             ),
         )
 

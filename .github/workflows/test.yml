@@ -10,21 +10,24 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       SENTIMENT_MODEL_PATH: ${{ secrets.SENTIMENT_MODEL_PATH }}
       
-      # Twitter (필수 - 스모크 테스트용)
+      # Twitter (스모크 테스트용)
       TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
       TWITTER_API_KEY_SECRET: ${{ secrets.TWITTER_API_KEY_SECRET }}
       TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
       TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
       TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
       
-      # Instiz (필수 - 스모크 테스트용)
+      # Instiz (스모크 테스트용)
       INSTIZ_ID: ${{ secrets.INSTIZ_ID }}
       INSTIZ_PW: ${{ secrets.INSTIZ_PW }}
       
-      # Kafka (선택사항 - Kafka 통합 테스트용)
+      # Kafka (Kafka 통합 테스트용)
       KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
       KAFKA_API_KEY: ${{ secrets.KAFKA_API_KEY }}
       KAFKA_API_SECRET: ${{ secrets.KAFKA_API_SECRET }}
@@ -44,7 +47,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install huggingface_hub
-          # Playwright 브라우저 설치 (스모크 테스트용)
           python -m playwright install chromium --with-deps
 
       - name: Set PYTHONPATH
@@ -55,6 +57,8 @@ jobs:
           echo "=== 기본 설정 ==="
           echo "Model path: $SENTIMENT_MODEL_PATH"
           python -c "import os; print('HF_TOKEN exists:', bool(os.getenv('HF_TOKEN')))"
+          python -c "import os; print('OPENAI_API_KEY exists:', bool(os.getenv('OPENAI_API_KEY')))"
+          python -c "import os; print('PINECONE_API_KEY exists:', bool(os.getenv('PINECONE_API_KEY')))"
           
           echo "=== Twitter 설정 ==="
           python -c "import os; print('TWITTER_API_KEY exists:', bool(os.getenv('TWITTER_API_KEY')))"
@@ -66,15 +70,6 @@ jobs:
           echo "=== Kafka 설정 ==="
           python -c "import os; print('KAFKA_BOOTSTRAP_SERVERS exists:', bool(os.getenv('KAFKA_BOOTSTRAP_SERVERS')))"
           python -c "import os; print('RUN_REAL_COLLECTOR:', os.getenv('RUN_REAL_COLLECTOR'))"
-
-      - name: Run smoke tests (스모크 테스트)
-        run: pytest tests/test_collector_smoke.py -v --tb=short
-        continue-on-error: false
-
-      - name: Run Kafka integration tests (Kafka 통합 테스트)
-        if: env.KAFKA_BOOTSTRAP_SERVERS != ''
-        run: RUN_REAL_COLLECTOR=1 pytest tests/test_collector_to_kafka.py -v --tb=short
-        continue-on-error: true
 
       - name: Run all tests (전체 테스트)
         run: pytest --tb=short -v
