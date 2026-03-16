@@ -1,7 +1,7 @@
 import uuid
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from src.pipeline.collectors.community import InstizCollector
@@ -74,7 +74,7 @@ class UnifiedCollector:
                             type="post",
                             source="twitter",
                             keyword=keyword,
-                            collected_at=datetime.utcnow(),
+                            collected_at=datetime.now(timezone.utc),
                             content_data=ContentData(
                                 text=self._clean_text(text),
                                 author_id=self._anonymize_user(str(tweet.get('author_id', ''))), 
@@ -101,7 +101,7 @@ class UnifiedCollector:
                             type="post",
                             source=post.get('source', 'instiz'), 
                             keyword=keyword,
-                            collected_at=datetime.utcnow(),
+                            collected_at=datetime.now(timezone.utc),
                             content_data=ContentData(
                                 text=self._clean_text(content),
                                 author_id=self._anonymize_user(post.get('writer', 'unknown')),
@@ -126,7 +126,7 @@ class UnifiedCollector:
                             type="trend",
                             source="google_trends",
                             keyword=keyword,
-                            collected_at=datetime.utcnow(),
+                            collected_at=datetime.now(timezone.utc),
                             trend_data=TrendData(
                                 interest_score=t_data.get('interest_score', 0),
                                 is_partial=t_data.get('is_partial', False),

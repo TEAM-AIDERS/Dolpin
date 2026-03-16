@@ -17,7 +17,7 @@ class KafkaConsumer:
     def __init__(self, group_id: str = "dolpin-analyzer-group"):
         self.conf = {
             'bootstrap.servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS'),
-            'sasl.mechanism': 'PLAIN',
+            'sasl.mechanisms': 'PLAIN',
             'security.protocol': 'SASL_SSL',
             'sasl.username': os.getenv('KAFKA_API_KEY'),
             'sasl.password': os.getenv('KAFKA_API_SECRET'),

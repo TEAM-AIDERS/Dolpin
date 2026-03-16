@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import pytest
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Allow direct execution: `python tests/test_kafka_spikeagent.py`
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -93,7 +96,7 @@ def test_real_kafka_to_spikeagent():
 
     # Wait until assignment is complete. With auto.offset.reset=latest,
     # producing before assignment can skip the just-produced message.
-    assign_deadline = time.time() + 10
+    assign_deadline = time.time() + 30
     while time.time() < assign_deadline:
         consumer.poll(0.2)
         if consumer.assignment():

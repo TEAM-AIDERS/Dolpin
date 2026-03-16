@@ -49,7 +49,7 @@ def test_real_collector_to_kafka():
     consumer = Consumer(consumer_conf)
     consumer.subscribe([topic])
 
-    assign_deadline = time.time() + 10
+    assign_deadline = time.time() + 30
     while time.time() < assign_deadline:
         consumer.poll(0.2)
         if consumer.assignment():

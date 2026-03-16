@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # 로깅 설정
 logging.basicConfig(
@@ -106,7 +106,7 @@ class KafkaMessageCollector:
             "sasl.username": os.getenv("KAFKA_API_KEY"),
             "sasl.password": os.getenv("KAFKA_API_SECRET"),
             "group.id": f"dolpin-real-e2e-{int(time.time())}",
-            "auto.offset.reset": "latest",
+            "auto.offset.reset": "earliest" if os.getenv("MODE") == "REPLAY" else "latest",
             "enable.auto.commit": False,
         }
         
@@ -118,11 +118,11 @@ class KafkaMessageCollector:
             
             # 파티션 할당 대기
             logger.info("Waiting for partition assignment...")
-            assign_deadline = time.time() + 10
+            assign_deadline = time.time() + 30
             while time.time() < assign_deadline:
                 consumer.poll(0.2)
                 if consumer.assignment():
-                    logger.info(f"✓ Assigned partitions: {consumer.assignment()}")
+                    logger.info("✓ Assigned partitions: %d partition(s)", len(consumer.assignment()))
                     break
             
             if not consumer.assignment():
@@ -180,11 +180,11 @@ def kafka_messages_to_spike_event(
 ) -> Dict[str, Any]:
     """
     Kafka 메시지 → SpikeEvent 변환
-    
+
     스파이크 분석을 위한 입력 데이터 구성
     """
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
+
     # 메시지 정규화
     normalized_messages = []
     for kafka_msg in messages:
@@ -212,13 +212,15 @@ def kafka_messages_to_spike_event(
                     "source": kafka_msg.get("source", "unknown"),
                     "detected_language": "ko",
                 })
-    
+
     # 스파이크 분석 입력 생성
-    message_count = len(normalized_messages)
-    
+    # TODO: spike_rate는 실제 수집기에서 계산되어야 함 (현재 하드코딩)
+    # - SpikeAnalyzerAgent는 spike_rate=0이면 current_volume/baseline으로 자동 계산 가능
+    # - 하지만 significant_spike_threshold=3.0이므로 current_volume이 baseline의 3배 이상이어야 분석 진행
+    # - 실제 E2E에서는 Google Trends interest_score나 수집된 post 수 기반으로 계산 필요
     return {
         "keyword": keyword,
-        "spike_rate": 2.5,  # 기본값 (실제는 수집기에서 계산)
+        "spike_rate": 2.5,  # TODO: 하드코딩 — 실제 수집기에서 계산한 값으로 교체 필요
         "baseline": 100,
         "current_volume": int(100 * 2.5),  # 250
         "detected_at": now,

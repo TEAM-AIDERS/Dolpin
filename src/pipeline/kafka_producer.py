@@ -18,7 +18,7 @@ class KafkaProducer:
             'sasl.password': os.getenv('KAFKA_API_SECRET'),
 
             # 비용 최적화
-            'linger.ms': 10000,
+            'linger.ms': 100,
             'batch.size': 32768,
             'compression.type': 'gzip',
 
