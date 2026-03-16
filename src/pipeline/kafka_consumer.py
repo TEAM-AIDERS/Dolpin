@@ -65,8 +65,10 @@ class KafkaConsumer:
             finally:
                 loop.close()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(_invoke).result(timeout=180)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_invoke)
+        executor.shutdown(wait=False)
+        return future.result(timeout=180)
 
     # 메시지 소비하고 콜백으로 넘기는 메서드
     def consume(self, callback: Callable[[KafkaMessage], None]):

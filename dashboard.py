@@ -57,9 +57,11 @@ def _kafka_consumer_thread() -> None:
             _pipeline_state["is_running"] = True
         try:
             result = consumer.run_pipeline(msg)
-            # skipped 이벤트는 대시보드 갱신 불필요
             if not result.get("skipped"):
                 _set_latest_result(result)
+            else:
+                with _pipeline_lock:
+                    _pipeline_state["is_running"] = False
         except Exception as e:
             with _pipeline_lock:
                 _pipeline_state["is_running"] = False
@@ -243,7 +245,7 @@ def build_volume_timeline(spike_event: dict) -> go.Figure:
     baseline = spike_event["baseline"]
     current_volume = spike_event["current_volume"]
     time_window = spike_event.get("time_window", "3h")
-    hours = int(time_window[0])
+    hours = int(re.sub(r"\D", "", time_window) or "1")
 
     n_points = hours * 2 + 3
     times = [detected_at - timedelta(hours=hours) + timedelta(minutes=30 * i)
