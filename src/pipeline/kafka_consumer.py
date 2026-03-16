@@ -128,11 +128,13 @@ if __name__ == "__main__":
         logger.info(f"--- 분석 시작 --- 키워드: {msg.keyword}")
         try:
             result = consumer.run_pipeline(msg)
-            brief = (result.get("executive_brief") or {}).get("summary", "N/A")
             skipped = result.get("skipped", False)
             if skipped:
                 logger.info(f"⏭️  스킵됨: [{msg.keyword}] reason={result.get('skip_reason')}")
             else:
+                from src.pipeline.result_store import save_result
+                save_result(result)
+                brief = (result.get("executive_brief") or {}).get("summary", "N/A")
                 logger.info(f"✅ 분석 완료: [{msg.keyword}] {brief}")
         except Exception as e:
             logger.error(f"❌ 파이프라인 실패: [{msg.keyword}] {e}")

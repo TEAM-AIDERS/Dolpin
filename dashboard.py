@@ -3,80 +3,14 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional
-import asyncio
 import json
-import uuid
-import sys
 import os
-import concurrent.futures
 import random
 import re
 import html as _html
-import threading
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# ============================================================
-# 파이프라인 공유 상태 (프로세스 전체, 파일 저장 없음)
-# ============================================================
-
-_pipeline_lock = threading.Lock()
-_pipeline_state: dict = {
-    "result": None,        # 최신 AnalysisState (executive_brief 포함)
-    "updated_at": None,    # 마지막 업데이트 시각 (datetime)
-    "is_running": False,   # 현재 파이프라인 실행 중 여부
-}
-_kafka_thread_started = threading.Event()
-
-
-def _get_latest_result() -> Optional[dict]:
-    with _pipeline_lock:
-        return _pipeline_state["result"]
-
-
-def _set_latest_result(result: dict) -> None:
-    with _pipeline_lock:
-        _pipeline_state["result"] = result
-        _pipeline_state["updated_at"] = datetime.utcnow()
-        _pipeline_state["is_running"] = False
-
-
-def _kafka_consumer_thread() -> None:
-    """백그라운드 스레드: Kafka 수신 → 파이프라인 실행 → 공유 상태 갱신"""
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    from src.pipeline.kafka_consumer import KafkaConsumer
-    consumer = KafkaConsumer(group_id="dolpin-dashboard")
-
-    def on_message(msg):
-        with _pipeline_lock:
-            _pipeline_state["is_running"] = True
-        try:
-            result = consumer.run_pipeline(msg)
-            if not result.get("skipped"):
-                _set_latest_result(result)
-            else:
-                with _pipeline_lock:
-                    _pipeline_state["is_running"] = False
-        except Exception as e:
-            with _pipeline_lock:
-                _pipeline_state["is_running"] = False
-            import logging
-            logging.getLogger(__name__).error(f"파이프라인 실패: {e}")
-
-    consumer.consume(callback=on_message)
-
-
-def _ensure_kafka_thread() -> None:
-    """프로세스당 한 번만 Kafka consumer 스레드 시작"""
-    if not _kafka_thread_started.is_set():
-        _kafka_thread_started.set()
-        t = threading.Thread(target=_kafka_consumer_thread, daemon=True)
-        t.start()
 
 
 # ============================================================
@@ -395,74 +329,7 @@ def render_urgency_badge(urgency: str) -> str:
     )
 
 
-# ============================================================
-# Workflow 헬퍼
-# ============================================================
-
-def create_initial_state(spike_event_dict: dict) -> dict:
-    """SpikeEvent dict에서 AnalysisState 초기 상태 생성"""
-    return {
-        "spike_event": spike_event_dict,
-        "trace_id": str(uuid.uuid4()),
-        "workflow_start_time": datetime.utcnow().isoformat() + "Z",
-        "sentiment_model_path": None,
-        "device": "cpu",
-        "lexicon_lookup_raw": None,
-        "route1_decision": None,
-        "route2_decision": None,
-        "route3_decision": None,
-        "positive_viral_detected": None,
-        "spike_analysis": None,
-        "lexicon_matches": None,
-        "sentiment_result": None,
-        "causality_result": None,
-        "legal_risk": None,
-        "amplification_summary": None,
-        "playbook": None,
-        "node_insights": {},
-        "executive_brief": None,
-        "error_logs": [],
-        "skipped": False,
-        "skip_reason": None,
-    }
-
-
-def run_real_workflow(spike_event_dict: dict) -> dict:
-    """
-    LangGraph 워크플로우를 동기적으로 실행.
-    legal_rag_node가 async이므로 별도 스레드에서 새 이벤트 루프로 실행.
-    """
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    from src.dolpin_langgraph.graph import compile_workflow
-
-    initial_state = create_initial_state(spike_event_dict)
-    graph = compile_workflow()
-
-    def _invoke_in_new_loop():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(graph.ainvoke(initial_state))
-        finally:
-            loop.close()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(_invoke_in_new_loop)
-        return future.result(timeout=180)
-
-
-# ============================================================
-# Kafka 스레드 시작 (Kafka 환경변수 있을 때만)
-# ============================================================
-
-_kafka_ready = all(os.getenv(k) for k in [
-    "KAFKA_BOOTSTRAP_SERVERS", "KAFKA_API_KEY", "KAFKA_API_SECRET", "KAFKA_TOPIC"
-])
-if _kafka_ready:
-    _ensure_kafka_thread()
+_gcs_ready = bool(os.getenv("GCS_BUCKET_NAME"))
 
 
 # ============================================================
@@ -473,20 +340,11 @@ with st.sidebar:
     st.markdown("### 🐬 DOLPIN Dashboard")
     st.markdown("---")
 
-    # Kafka 연결 상태
     st.markdown("**파이프라인 상태**")
-    if _kafka_ready:
-        with _pipeline_lock:
-            _is_running = _pipeline_state["is_running"]
-            _updated_at = _pipeline_state["updated_at"]
-        if _is_running:
-            st.warning("⚙️ 분석 실행 중...")
-        else:
-            st.success("🟢 Kafka 연결됨")
-        if _updated_at:
-            st.caption(f"마지막 업데이트: {_updated_at.strftime('%H:%M:%S')}")
+    if _gcs_ready:
+        st.success("🟢 GCS 연결됨")
     else:
-        st.info("🔌 Kafka 미연결 (개발 모드)")
+        st.info("🔌 GCS 미연결 (개발 모드)")
 
     st.markdown("---")
     if st.button("🔄 새로고침"):
@@ -519,11 +377,12 @@ with st.sidebar:
 # 상태 로드
 # ============================================================
 
-# session_state 우선 (UI 미리보기), 없으면 Kafka 스레드 결과
-with _pipeline_lock:
-    _thread_result = _pipeline_state["result"]
-if _thread_result is not None:
-    st.session_state["pipeline_result"] = _thread_result
+# session_state 우선 (UI 미리보기), 없으면 GCS에서 로드
+if "pipeline_result" not in st.session_state and _gcs_ready:
+    from src.pipeline.result_store import load_result
+    _gcs_result = load_result()
+    if _gcs_result:
+        st.session_state["pipeline_result"] = _gcs_result
 
 state = st.session_state.get("pipeline_result")
 
@@ -531,17 +390,17 @@ state = st.session_state.get("pipeline_result")
 if state is None:
     st.markdown("### 🐬 DOLPIN 분석 대시보드")
     st.markdown("---")
-    if _kafka_ready:
+    if _gcs_ready:
         st.markdown(
             """
             <div style="text-align:center;padding:60px 20px;">
                 <div style="font-size:64px;margin-bottom:16px;">🐬</div>
-                <div style="font-size:22px;font-weight:700;color:#888;margin-bottom:12px;">
-                    파이프라인 대기 중
+                <div style="font-size:22px;font-weight:700;color:#FFFFFF;margin-bottom:12px;">
+                    분석 결과 대기 중
                 </div>
                 <div style="font-size:15px;color:#888;max-width:500px;margin:0 auto;line-height:1.7;">
-                    Kafka에서 스파이크 이벤트를 수신하면<br>
-                    자동으로 분석을 시작하고 결과를 표시합니다.
+                    파이프라인에서 스파이크 이벤트를 분석하면<br>
+                    결과가 자동으로 표시됩니다.
                 </div>
             </div>
             """,
@@ -553,12 +412,12 @@ if state is None:
             <div style="text-align:center;padding:60px 20px;">
                 <div style="font-size:64px;margin-bottom:16px;">🔌</div>
                 <div style="font-size:22px;font-weight:700;color:#FFFFFF;margin-bottom:12px;">
-                    개발 모드 — Kafka 미연결
+                    개발 모드 — GCS 미연결
                 </div>
                 <div style="font-size:15px;color:#888;max-width:500px;margin:0 auto;line-height:1.7;">
-                    <code>.env</code>에 Kafka 환경변수를 설정하면 실시간 파이프라인이 시작됩니다.<br><br>
-                    필요한 변수: <code>KAFKA_BOOTSTRAP_SERVERS</code>, <code>KAFKA_API_KEY</code>,<br>
-                    <code>KAFKA_API_SECRET</code>, <code>KAFKA_TOPIC</code>
+                    <code>.env</code>에 <code>GCS_BUCKET_NAME</code>을 설정하면<br>
+                    파이프라인 결과를 불러옵니다.<br><br>
+                    UI 확인은 사이드바 🧪 테스트 버튼을 사용하세요.
                 </div>
             </div>
             """,
