@@ -18,7 +18,7 @@ producer = Producer(producer_conf)
 topic = os.getenv("KAFKA_TOPIC")
 
 message = {
-    "keyword": "워시",
+    "keyword": "위시",
     "type": "post",
     "source": "test",
     "content_data": {
