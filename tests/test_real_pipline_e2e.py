@@ -154,9 +154,9 @@ class KafkaMessageCollector:
                     continue
                 
                 # 키워드 필터링
-                # if data.get("keyword") != keyword:
-                #    logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
-                #    continue                 
+                if data.get("keyword") != keyword:
+                   logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
+                   continue                 
           
                 logger.info(
                     f"RAW MESSAGE received: keyword={data.get('keyword')} "
