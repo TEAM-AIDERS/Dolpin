@@ -95,12 +95,8 @@ class KafkaMessageCollector:
             from confluent_kafka import Consumer
         except ImportError:
             raise RuntimeError("confluent_kafka not installed")
-
-        topic = os.getenv("KAFKA_TOPIC")
-        mode = os.getenv("MODE")
         
         logger.info(f"Collecting messages for keyword: {keyword}")
-        logger.info(f"Topic: {topic}, Mode: {mode}")
         logger.info(f"Timeout: {timeout}s, Min messages: {self.min_messages}")
         
         consumer_conf = {
@@ -150,14 +146,9 @@ class KafkaMessageCollector:
                     continue
                 
                 # 키워드 필터링
-                #if data.get("keyword") != keyword:
-                #   logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
-                #   continue
-                  
-                logger.info(
-                  f"RAW MESSAGE received: keyword={data.get('keyword')} "
-                  f"type={data.get('type')} source={data.get('source')}"
-               )
+                if data.get("keyword") != keyword:
+                   logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
+                   continue                 
           
                 messages.append(data)
                 logger.info(f"✓ Message {len(messages)}: {data.get('type')} from {data.get('source')}")
