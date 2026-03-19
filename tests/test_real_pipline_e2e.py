@@ -95,8 +95,12 @@ class KafkaMessageCollector:
             from confluent_kafka import Consumer
         except ImportError:
             raise RuntimeError("confluent_kafka not installed")
-        
+
+        topic = os.getenv("KAFKA_TOPIC")
+        mode = os.getenv("MODE")
+      
         logger.info(f"Collecting messages for keyword: {keyword}")
+        logger.info(f"Topic: {topic}, Mode: {mode}")
         logger.info(f"Timeout: {timeout}s, Min messages: {self.min_messages}")
         
         consumer_conf = {
@@ -113,6 +117,7 @@ class KafkaMessageCollector:
         consumer = Consumer(consumer_conf)
         
         try:
+            logger.info(f"Subscribing to topic: {topic}")
             consumer.subscribe([topic])
             
             # 파티션 할당 대기
@@ -138,6 +143,9 @@ class KafkaMessageCollector:
                 
                 if msg is None or msg.error():
                     continue
+
+              raw_value = msg.value()
+              logger.info(f"Raw Kafka payload bytes: {raw_value}")
                 
                 try:
                     data = json.loads(msg.value().decode("utf-8"))
@@ -146,10 +154,15 @@ class KafkaMessageCollector:
                     continue
                 
                 # 키워드 필터링
-                if data.get("keyword") != keyword:
-                   logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
-                   continue                 
+                # if data.get("keyword") != keyword:
+                #    logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
+                #    continue                 
           
+                logger.info(
+                    f"RAW MESSAGE received: keyword={data.get('keyword')} "
+                    f"type={data.get('type')} source={data.get('source')}"
+                )
+                  
                 messages.append(data)
                 logger.info(f"✓ Message {len(messages)}: {data.get('type')} from {data.get('source')}")
                 
