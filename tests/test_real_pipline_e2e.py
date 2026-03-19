@@ -225,11 +225,16 @@ def kafka_messages_to_spike_event(
     # - SpikeAnalyzerAgent는 spike_rate=0이면 current_volume/baseline으로 자동 계산 가능
     # - 하지만 significant_spike_threshold=3.0이므로 current_volume이 baseline의 3배 이상이어야 분석 진행
     # - 실제 E2E에서는 Google Trends interest_score나 수집된 post 수 기반으로 계산 필요
+
+    current_volume = max(len(normalized_messages), 1)
+    baseline = max(1, current_volume // 3)
+    spike_rate = round(current_volume / baseline, 2)
+
     return {
         "keyword": keyword,
-        "spike_rate": 2.5,  # TODO: 하드코딩 — 실제 수집기에서 계산한 값으로 교체 필요
-        "baseline": 100,
-        "current_volume": int(100 * 2.5),  # 250
+        "spike_rate": spike_rate,  # TODO: 하드코딩 — 실제 수집기에서 계산한 값으로 교체 필요
+        "baseline": baseline,
+        "current_volume": current_volume,  # 250
         "detected_at": now,
         "time_window": "1h",
         "messages": normalized_messages,
