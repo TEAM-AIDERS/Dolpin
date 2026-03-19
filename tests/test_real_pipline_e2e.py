@@ -157,11 +157,6 @@ class KafkaMessageCollector:
                 if data.get("keyword") != keyword:
                    logger.debug(f"Skipping non-matching keyword: {data.get('keyword')}")
                    continue                 
-          
-                logger.info(
-                    f"RAW MESSAGE received: keyword={data.get('keyword')} "
-                    f"type={data.get('type')} source={data.get('source')}"
-                )
                   
                 messages.append(data)
                 logger.info(f"✓ Message {len(messages)}: {data.get('type')} from {data.get('source')}")
