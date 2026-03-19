@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from confluent_kafka import Producer
 from dotenv import load_dotenv
 
@@ -22,7 +23,7 @@ message = {
     "type": "post",
     "source": "test",
     "content_data": {
-        "id": "test-1",
+        "id": f"test-{int(time.time() * 1000)}",
         "text": "워시 관련 테스트 메시지",
         "author_id": "tester",
         "metrics": {
