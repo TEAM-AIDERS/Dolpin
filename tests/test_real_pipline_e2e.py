@@ -144,8 +144,8 @@ class KafkaMessageCollector:
                 if msg is None or msg.error():
                     continue
 
-              raw_value = msg.value()
-              logger.info(f"Raw Kafka payload bytes: {raw_value}")
+                raw_value = msg.value()
+                logger.info(f"Raw Kafka payload bytes: {raw_value}")
                 
                 try:
                     data = json.loads(msg.value().decode("utf-8"))
