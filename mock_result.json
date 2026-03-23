@@ -1,0 +1,218 @@
+{
+  "trace_id": "mock-trace-0001",
+  "skipped": false,
+  "skip_reason": null,
+  "route1_decision": "analyze",
+  "route2_decision": "full_analysis",
+  "route3_decision": "legal_required",
+  "positive_viral_detected": false,
+  "workflow_start_time": "2026-03-16T10:00:00Z",
+  "spike_event": {
+    "keyword": "BTS",
+    "spike_rate": 8.5,
+    "baseline": 200,
+    "current_volume": 1700,
+    "detected_at": "2026-03-16T10:00:00Z",
+    "time_window": "1h",
+    "messages": [
+      {
+        "id": "msg-001",
+        "source_message_id": "tw_001",
+        "text": "BTS 컴백 대박 최고다 응원한다 팬미팅",
+        "timestamp": "2026-03-16T10:00:00Z",
+        "source": "twitter",
+        "author_id": "fan_001",
+        "metrics": {"likes": 1500, "retweets": 800, "replies": 200},
+        "is_anonymized": false,
+        "detected_language": "ko"
+      },
+      {
+        "id": "msg-002",
+        "source_message_id": "tw_002",
+        "text": "불매 실망 최악 환불 요구",
+        "timestamp": "2026-03-16T10:03:00Z",
+        "source": "twitter",
+        "author_id": "anti_002",
+        "metrics": {"likes": 300, "retweets": 120, "replies": 40},
+        "is_anonymized": false,
+        "detected_language": "ko"
+      }
+    ],
+    "raw_kafka_message_ids": ["mock-kafka-001"]
+  },
+  "spike_analysis": {
+    "spike_rate": 8.5,
+    "spike_nature": "mixed",
+    "is_significant": true,
+    "confidence": 0.87,
+    "actionability_score": 0.82,
+    "data_completeness": "confirmed",
+    "partial_data_warning": null,
+    "baseline_history": [180, 195, 200, 210, 200],
+    "viral_indicators": {
+      "cross_platform": ["twitter", "youtube", "instagram"],
+      "max_rise_rate": "+750%",
+      "trending_hashtags": ["#BTS컴백", "#방탄소년단", "#BTSFEST"]
+    }
+  },
+  "sentiment_result": {
+    "primary_sentiment": "support",
+    "secondary_sentiment": "boycott",
+    "sentiment_distribution": {
+      "support": 0.52,
+      "disappointment": 0.10,
+      "boycott": 0.18,
+      "meme": 0.08,
+      "fanwar": 0.07,
+      "neutral": 0.05
+    },
+    "overall_tone": "mixed",
+    "representative_messages": {
+      "boycott": [
+        "불매운동 동참합니다 제발 책임지세요",
+        "이런 행동은 용납할 수 없어요 환불 요구"
+      ]
+    }
+  },
+  "causality_result": {
+    "hub_accounts": [
+      {
+        "account_id": "@bts_official_fan",
+        "account_type": "fan_account",
+        "follower_count": 250000,
+        "influence_score": 0.91
+      },
+      {
+        "account_id": "@kpop_news_kr",
+        "account_type": "media",
+        "follower_count": 180000,
+        "influence_score": 0.78
+      },
+      {
+        "account_id": "@celebrity_watch",
+        "account_type": "influencer",
+        "follower_count": 95000,
+        "influence_score": 0.63
+      }
+    ],
+    "amplification_path": "fan_account → media → general_public",
+    "estimated_reach": 1200000
+  },
+  "legal_risk": {
+    "overall_risk_level": "medium",
+    "clearance_status": "review_needed",
+    "confidence": 0.74,
+    "rag_required": true,
+    "rag_performed": true,
+    "rag_confidence": 0.81,
+    "risk_assessment": {
+      "legal_violation": [
+        "명예훼손 가능성 — 허위 사실 유포 게시물 다수 감지",
+        "저작권 침해 — 무단 음원 배포 링크 포함"
+      ],
+      "analysis": "팬덤 내 불매운동 관련 게시물에서 허위 사실 유포 패턴이 감지되었습니다. 즉각적인 법무팀 검토가 권장됩니다."
+    },
+    "recommended_action": [
+      "법무팀에 명예훼손 관련 게시물 목록 전달",
+      "저작권 침해 게시물 신고 처리 진행",
+      "공식 입장문 초안 준비"
+    ],
+    "referenced_documents": [
+      {
+        "title": "정보통신망법 제44조의7",
+        "link": "https://www.law.go.kr"
+      },
+      {
+        "title": "저작권법 제136조",
+        "link": "https://www.law.go.kr"
+      }
+    ],
+    "signals": {
+      "defamation_risk": 0.72,
+      "copyright_risk": 0.65
+    }
+  },
+  "amplification_summary": {
+    "total_reach": 1200000,
+    "peak_velocity": 340,
+    "platform_breakdown": {
+      "twitter": 0.60,
+      "youtube": 0.25,
+      "instagram": 0.15
+    }
+  },
+  "playbook": {
+    "situation_type": "crisis",
+    "priority": "high",
+    "recommended_actions": [
+      {
+        "action": "issue_statement",
+        "urgency": "immediate",
+        "description": "불매운동 관련 허위 사실 공식 해명",
+        "draft": "안녕하세요. [소속사명]입니다. 최근 온라인상에 유포되고 있는 BTS 관련 허위 사실에 대해 공식 입장을 밝힙니다. 해당 내용은 사실과 전혀 다르며, 법적 조치를 적극 검토하겠습니다.",
+        "legal_basis": "정보통신망법 제44조의7 (불법정보의 유통금지)",
+        "target_posts": []
+      },
+      {
+        "action": "legal_response",
+        "urgency": "high",
+        "description": "명예훼손 게시물 법적 조치 검토",
+        "draft": null,
+        "legal_basis": "형법 제307조 명예훼손죄",
+        "target_posts": []
+      },
+      {
+        "action": "engage_influencers",
+        "urgency": "medium",
+        "description": "긍정 여론 확산을 위한 팬덤 리더 협력",
+        "draft": null,
+        "legal_basis": null,
+        "target_posts": []
+      }
+    ],
+    "key_risks": [
+      "불매운동 확산 시 브랜드 이미지 타격",
+      "허위 사실 방치 시 추가 확산 가능",
+      "저작권 이슈 미대응 시 법적 분쟁 가능성"
+    ],
+    "key_opportunities": [
+      "팬덤 결집 계기로 긍정 캠페인 전환 가능",
+      "투명한 소통으로 브랜드 신뢰도 제고",
+      "법적 선제 대응으로 유사 사례 예방"
+    ],
+    "target_channels": ["twitter", "weverse", "공식 홈페이지"]
+  },
+  "node_insights": {
+    "spike_analyzer": "spike_rate 8.5x, 1시간 내 twitter/youtube/instagram 동시 급등. cross-platform 확산 패턴 감지.",
+    "sentiment": "지지(52%) vs 불매(18%) 혼재. 팬덤 내 내부 갈등 구조로 해석됨.",
+    "causality": "허브 계정 3개 통해 추정 도달 120만명. 팬계정→미디어→일반으로 확산 경로 확인.",
+    "LegalRAG": "명예훼손·저작권 2개 법률 조항 해당. RAG 신뢰도 81%. 법무팀 즉각 검토 권장.",
+    "playbook": "crisis 상황 분류, high 우선순위. 3단계 대응 (즉각 성명 → 법적 조치 → 인플루언서 협력)."
+  },
+  "executive_brief": {
+    "summary": "BTS 키워드 8.5배 급등 — 불매운동 허위 사실 유포와 팬덤 결집이 동시 발생. 법무팀 즉각 검토 및 공식 성명 발표 권장.",
+    "severity_score": 7,
+    "trend_direction": "escalating",
+    "issue_polarity": "mixed",
+    "spike_summary": "1시간 내 1,700건 → baseline 대비 8.5배. 크로스플랫폼 동시 급등.",
+    "sentiment_summary": "지지 52% / 불매 18% 혼재. 내부 갈등 구조.",
+    "legal_summary": "명예훼손·저작권 리스크 감지. review_needed.",
+    "action_summary": "즉각 공식 성명 + 법적 조치 검토 + 인플루언서 협력 3단계 대응.",
+    "opportunity_summary": "팬덤 결집 에너지를 긍정 캠페인으로 전환 가능.",
+    "analysis_status": {
+      "spike_analyzer": "success",
+      "sentiment": "success",
+      "causality": "success",
+      "legal_rag": "success",
+      "playbook": "success"
+    },
+    "user_message": null,
+    "generated_at": "2026-03-16T10:02:45Z",
+    "analysis_duration_seconds": 42.3
+  },
+  "error_logs": [],
+  "lexicon_lookup_raw": null,
+  "lexicon_matches": null,
+  "sentiment_model_path": null,
+  "device": "cpu"
+}
