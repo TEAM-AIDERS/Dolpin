@@ -131,6 +131,8 @@ if __name__ == "__main__":
             skipped = result.get("skipped", False)
             if skipped:
                 logger.info(f"⏭️  스킵됨: [{msg.keyword}] reason={result.get('skip_reason')}")
+                logger.info(f"spike_summary={result.get('spike_summary')}")
+                logger.info(f"executive_brief={result.get('executive_brief')}")
             else:
                 from src.pipeline.result_store import save_result
                 from src.integrations.slack.formatter import format_to_slack
@@ -139,10 +141,11 @@ if __name__ == "__main__":
                 save_result(result)
 
                 slack_message = format_to_slack(result)
-                send_to_slack(slack_message)
-
+                sent = send_to_slack(slack_message)
+                
                 brief = (result.get("executive_brief") or {}).get("summary", "N/A")
                 logger.info(f"✅ 분석 완료: [{msg.keyword}] {brief}")
+                logger.info(f"📨 Slack 전송 결과: {sent}")
         except Exception as e:
             logger.error(f"❌ 파이프라인 실패: [{msg.keyword}] {e}")
 
