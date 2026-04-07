@@ -133,7 +133,14 @@ if __name__ == "__main__":
                 logger.info(f"⏭️  스킵됨: [{msg.keyword}] reason={result.get('skip_reason')}")
             else:
                 from src.pipeline.result_store import save_result
+                from src.integrations.slack.formatter import format_to_slack
+                from src.integrations.slack.sender import send_to_slack
+
                 save_result(result)
+
+                slack_message = format_to_slack(result)
+                send_to_slack(slack_message)
+
                 brief = (result.get("executive_brief") or {}).get("summary", "N/A")
                 logger.info(f"✅ 분석 완료: [{msg.keyword}] {brief}")
         except Exception as e:
