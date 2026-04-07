@@ -9,7 +9,7 @@ messages = [
     "팬들 반응 진짜 안 좋다",
     "논란이 너무 커졌다",
     "공식 입장 빨리 내야 한다",
-]
+] * 10
 
 for i, text in enumerate(messages, start=1):
     msg = KafkaMessage(
