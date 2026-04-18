@@ -145,5 +145,16 @@ class UnifiedCollector:
         print(f"[{keyword}] 모든 수집 및 전송 프로세스 완료")
 
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        keyword = " ".join(sys.argv[1:]).strip()
+    else:
+        keyword = input("모니터링할 키워드를 입력하세요: ").strip()
+
+    if not keyword:
+        print("❌ 키워드를 입력해야 합니다.")
+        sys.exit(1)
+
+    print(f"\n🔍 [{keyword}] 수집 시작...\n")
     collector = UnifiedCollector()
-    collector.run("엔시티 위시")
+    collector.run(keyword)

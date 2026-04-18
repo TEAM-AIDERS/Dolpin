@@ -7,14 +7,13 @@ DOLPIN 워크플로우의 전체 데이터 흐름을 정의합니다.
 """
 
 from typing import TypedDict, List, Dict, Any, Literal, Optional
-from datetime import datetime
 
 
 # ============================================================
 # 공통 타입 정의
 # ============================================================
 
-Source = Literal["twitter", "theqoo", "instiz", "google_trends"]
+Source = Literal["twitter", "instiz", "google_trends"]
 SpikeNature = Literal["positive", "negative", "mixed", "neutral"]
 DataCompleteness = Literal["confirmed", "partial", "mixed"]
 
