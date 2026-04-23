@@ -64,7 +64,16 @@ class KafkaConsumer:
             return asyncio.run(graph.ainvoke(state))
 
         future = self._executor.submit(_invoke)
-        return future.result(timeout=180)
+        try:
+            return future.result(timeout=180)
+        except concurrent.futures.TimeoutError:
+            # 타임아웃 시 executor 교체
+            # stuck worker가 self._executor의 유일한 슬롯을 점유한 상태이므로,
+            # 교체하지 않으면 이후 모든 submit()이 큐 뒤에 쌓여 연쇄 타임아웃 발생
+            # → consumer 전체가 재시작 전까지 마비됨
+            logger.error("LangGraph 타임아웃 (180초) — executor 교체하여 다음 메시지 처리 보장")
+            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            raise
 
     # 메시지 소비하고 콜백으로 넘기는 메서드
     def consume(self, callback: Callable[[KafkaMessage], None]):
