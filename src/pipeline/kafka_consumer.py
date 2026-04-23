@@ -29,6 +29,9 @@ class KafkaConsumer:
             # 수동 커밋으로 전환 → 처리 완료 후에만 offset 커밋 (at-least-once 보장)
             # True일 경우 poll() 직후 offset이 커밋되어 LangGraph 처리 실패 시 메시지 유실
             'enable.auto.commit': False,
+            # LangGraph 파이프라인 최대 180초 + 여유 60초
+            # 기본값(300초)과 겹치지 않지만 명시해 리밸런싱 트리거 조건을 코드에서 확인 가능하게 함
+            'max.poll.interval.ms': 300000,
         }
         self.consumer = Consumer(self.conf)
         self.topic = os.getenv('KAFKA_TOPIC')
