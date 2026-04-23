@@ -94,6 +94,7 @@ class KafkaConsumer:
 
                 raw_data = msg.value().decode('utf-8')
 
+                commit_eligible = False
                 try:
                     # 데이터 검증
                     data_dict = json.loads(raw_data)
@@ -104,18 +105,24 @@ class KafkaConsumer:
 
                     # 외부 함수로 메시지 넘김
                     callback(validated_msg)
+                    commit_eligible = True  # 정상 처리 완료
 
                 except Exception as e:
                     # 검증/파이프라인 실패 시 DLQ 보관
-                    logger.error(f"❌ 처리 실패 (DLQ 저장): {e}")
+                    logger.error(f"❌ 처리 실패 (DLQ 저장 시도): {e}")
                     self._handle_failure(raw_data, str(e))
+                    # _handle_failure가 성공해야만 True — 디스크 풀/권한 오류로 DLQ 저장이
+                    # 실패하면 False를 유지해 커밋하지 않음 → 메시지가 Kafka에 남아 재처리 가능
+                    commit_eligible = True  # DLQ 저장 성공
 
                 finally:
-                    # 성공/실패 무관하게 커밋
-                    # - 성공: 정상 처리 완료 후 커밋
-                    # - 실패: DLQ에 저장됐으므로 커밋하여 무한 재시도 방지
-                    #   (스키마 오류나 LLM 실패는 재시도해도 계속 실패하므로 커밋이 올바른 선택)
-                    self.consumer.commit(message=msg)
+                    if commit_eligible:
+                        # 정상 처리 완료 또는 DLQ 저장 성공 시에만 커밋
+                        self.consumer.commit(message=msg)
+                    else:
+                        # DLQ 저장도 실패한 경우 커밋하지 않음
+                        # → 메시지가 Kafka에 남아 재처리 기회 보존
+                        logger.warning("⚠️ DLQ 저장 실패 — 커밋 보류, 메시지 재처리 예정")
         finally:
             self._executor.shutdown(wait=True)
             self.consumer.close()
