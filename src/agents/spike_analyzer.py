@@ -54,13 +54,13 @@ class SpikeAnalyzerAgent:
     # 통계 지표 계산 (Z-Score, Acceleration, EPS)
     # ──────────────────────────────────────────────
     def _calculate_metrics(self, current_vol: float, messages: List[Dict[str, Any]]) -> Dict[str, float]:
-        # Z-Score: 과거 데이터가 2개 이상일 때만 의미있음
-        if len(self.baseline_history) < 2:
+        # Z-Score: 최소 12개(1시간치) 이상일 때만 의미있음
+        if len(self.baseline_history) < 12:
             z_score = 0.0
         else:
             arr = np.array(list(self.baseline_history), dtype=float) # 최근 24시간 동안 5분 단위 언급량들
-            # (current_vol - 평균) / 표준편차
-            z_score = (current_vol - float(np.mean(arr))) / (float(np.std(arr)) + 1e-6)
+            # (current_vol - 평균) / 표본표준편차 (ddof=1)
+            z_score = (current_vol - float(np.mean(arr))) / (float(np.std(arr, ddof=1)) + 1e-6)
 
         # Acceleration: 최근 1분 EPS vs 5분 EPS 비교
         now = datetime.now(timezone.utc)
@@ -202,10 +202,10 @@ class SpikeAnalyzerAgent:
     # ──────────────────────────────────────────────
     def analyze(self, event: SpikeEvent) -> SpikeAnalysisResult:
         # ── 기본값 정제 ──────────────────────────
-        baseline = int(event.get("baseline", 0) or 0)
+        baseline = max(int(event.get("baseline", 0) or 0), 10)
         current_volume = int(event.get("current_volume", 0) or 0)
         raw_spike_rate = float(event.get("spike_rate", 0.0) or 0.0)
-        if raw_spike_rate <= 0 and baseline > 0 and current_volume > 0:
+        if raw_spike_rate <= 0 and current_volume > 0:
             raw_spike_rate = current_volume / baseline
         spike_rate = round(float(raw_spike_rate), 2)
 
