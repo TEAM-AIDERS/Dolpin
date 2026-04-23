@@ -34,6 +34,7 @@ class KafkaConsumer:
         self.topic = os.getenv('KAFKA_TOPIC')
         self.dlq_path = "failed_events_log.jsonl"
         self._graph = None  # compile_workflow lazy init
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def _get_graph(self):
         """워크플로우 그래프 싱글톤 (최초 호출 시 한 번만 컴파일)"""
@@ -60,16 +61,9 @@ class KafkaConsumer:
 
         def _invoke():
             # legal_rag_node가 async이므로 별도 스레드에서 새 이벤트 루프로 실행
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(graph.ainvoke(state))
-            finally:
-                loop.close()
+            return asyncio.run(graph.ainvoke(state))
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(_invoke)
-        executor.shutdown(wait=False)
+        future = self._executor.submit(_invoke)
         return future.result(timeout=180)
 
     # 메시지 소비하고 콜백으로 넘기는 메서드
@@ -114,6 +108,7 @@ class KafkaConsumer:
                     #   (스키마 오류나 LLM 실패는 재시도해도 계속 실패하므로 커밋이 올바른 선택)
                     self.consumer.commit(message=msg)
         finally:
+            self._executor.shutdown(wait=True)
             self.consumer.close()
 
     # 실패한 메시지 따로 저장
