@@ -26,7 +26,9 @@ class KafkaConsumer:
             'group.id': group_id,
             # replay 모드면 과거 메시지까지 모두 읽고, 실시간이면 최신부터 읽음
             'auto.offset.reset': 'earliest' if os.getenv('MODE') == 'REPLAY' else 'latest',
-            'enable.auto.commit': True,
+            # 수동 커밋으로 전환 → 처리 완료 후에만 offset 커밋 (at-least-once 보장)
+            # True일 경우 poll() 직후 offset이 커밋되어 LangGraph 처리 실패 시 메시지 유실
+            'enable.auto.commit': False,
         }
         self.consumer = Consumer(self.conf)
         self.topic = os.getenv('KAFKA_TOPIC')
@@ -101,9 +103,16 @@ class KafkaConsumer:
                     callback(validated_msg)
 
                 except Exception as e:
-                    # 검증 실패 시 DLQ 보관
-                    logger.error(f"❌ 데이터 검증 실패: {e}")
+                    # 검증/파이프라인 실패 시 DLQ 보관
+                    logger.error(f"❌ 처리 실패 (DLQ 저장): {e}")
                     self._handle_failure(raw_data, str(e))
+
+                finally:
+                    # 성공/실패 무관하게 커밋
+                    # - 성공: 정상 처리 완료 후 커밋
+                    # - 실패: DLQ에 저장됐으므로 커밋하여 무한 재시도 방지
+                    #   (스키마 오류나 LLM 실패는 재시도해도 계속 실패하므로 커밋이 올바른 선택)
+                    self.consumer.commit(message=msg)
         finally:
             self.consumer.close()
 
@@ -148,5 +157,6 @@ if __name__ == "__main__":
                 logger.info(f"📨 Slack 전송 결과: {sent}")
         except Exception as e:
             logger.error(f"❌ 파이프라인 실패: [{msg.keyword}] {e}")
+            raise  # consume()의 finally 블록이 DLQ 저장 + 커밋을 처리하도록 예외 전파
 
     consumer.consume(callback=process_data)
