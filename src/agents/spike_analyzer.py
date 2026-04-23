@@ -202,11 +202,11 @@ class SpikeAnalyzerAgent:
     # ──────────────────────────────────────────────
     def analyze(self, event: SpikeEvent) -> SpikeAnalysisResult:
         # ── 기본값 정제 ──────────────────────────
-        baseline = max(int(event.get("baseline", 0) or 0), 10)
+        baseline = int(event.get("baseline", 0) or 0)
         current_volume = int(event.get("current_volume", 0) or 0)
         raw_spike_rate = float(event.get("spike_rate", 0.0) or 0.0)
-        if raw_spike_rate <= 0 and current_volume > 0:
-            raw_spike_rate = current_volume / baseline
+        if raw_spike_rate <= 0 and baseline > 0 and current_volume > 0:
+            raw_spike_rate = current_volume / max(baseline, 10)
         spike_rate = round(float(raw_spike_rate), 2)
 
         keyword = str(event.get("keyword", "unknown"))
