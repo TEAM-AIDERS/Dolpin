@@ -770,11 +770,40 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
             workflow_start = datetime.fromisoformat(workflow_start_raw.replace("Z", "+00:00"))
             duration = (datetime.now(workflow_start.tzinfo) - workflow_start).total_seconds()
 
+        # 룰 기반 요약 (fallback)
         spike_summary = _generate_spike_summary(state)
         sentiment_summary = _generate_sentiment_summary(state)
         legal_summary = _generate_legal_summary(state)
         action_summary = _generate_action_summary(state)
         opportunity_summary = _generate_opportunity_summary(state)
+
+        # LLM 내러티브 요약으로 덮어쓰기 (OPENAI_API_KEY 있을 때)
+        if os.getenv("OPENAI_API_KEY"):
+            try:
+                from openai import OpenAI
+                from src.prompt import build_exec_brief_prompt, parse_exec_brief_response
+
+                prompt = build_exec_brief_prompt(state)
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "당신은 K-POP 팬덤 이슈 관리 전문 PR 전략 AI입니다."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.5,
+                    max_tokens=800,
+                )
+                parsed = parse_exec_brief_response(response.choices[0].message.content)
+                if parsed.get("spike_summary"):
+                    spike_summary = parsed["spike_summary"]
+                if parsed.get("sentiment_summary"):
+                    sentiment_summary = parsed["sentiment_summary"]
+                if parsed.get("opportunity_summary"):
+                    opportunity_summary = parsed["opportunity_summary"]
+                logger.info("ExecBrief LLM 내러티브 생성 완료")
+            except Exception as e:
+                logger.warning(f"ExecBrief LLM 생성 실패, 룰 기반 사용: {e}")
 
         playbook = state.get("playbook") or {}
         playbook_status = "failed"
@@ -890,22 +919,102 @@ def _generate_spike_summary(state: AnalysisState) -> Optional[str]:
     spike = state.get("spike_analysis")
     if not spike:
         return None
-    warning = f", {spike['partial_data_warning']}" if spike.get("partial_data_warning") else ""
-    return (
-        f"{spike['spike_rate']}배 급등, "
-        f"{spike['spike_type']} 타입, "
-        f"{'Breakout 포함' if spike['viral_indicators']['has_breakout'] else '일반 급등'}"
-        f"{warning}"
-    )
+
+    spike_rate = spike.get("spike_rate", 0)
+    spike_type = spike.get("spike_type", "unknown")
+    spike_nature = spike.get("spike_nature", "neutral")
+    confidence = spike.get("confidence", 0.0)
+    actionability = spike.get("actionability_score", 0.0)
+    viral = spike.get("viral_indicators", {})
+    has_breakout = viral.get("has_breakout", False)
+    is_trending = viral.get("is_trending", False)
+    cross_platform = viral.get("cross_platform", [])
+    international_reach = viral.get("international_reach", 0.0)
+
+    lines = [
+        f"*{spike_rate}배* 급등 감지 — {spike_type} 유형, 성격: {spike_nature}"
+    ]
+
+    status_parts = []
+    if has_breakout:
+        status_parts.append("Breakout 급등 (바이럴 확산 중)")
+    elif is_trending:
+        status_parts.append("트렌딩 진입")
+    else:
+        status_parts.append("일반 급등")
+
+    if cross_platform:
+        status_parts.append(f"멀티플랫폼 확산: {', '.join(cross_platform[:3])}")
+    if international_reach >= 0.3:
+        status_parts.append(f"해외 도달률 {international_reach*100:.0f}%")
+
+    lines.append(" | ".join(status_parts))
+
+    # 신뢰도 60% 이상일 때만 표시
+    if confidence >= 0.6:
+        lines.append(f"분석 신뢰도: {confidence*100:.0f}% | 대응 필요도: {actionability*10:.1f}/10")
+    else:
+        lines.append(f"대응 필요도: {actionability*10:.1f}/10")
+
+    warning = spike.get("partial_data_warning")
+    if warning:
+        lines.append(f"_⚠ {warning}_")
+
+    return "\n".join(lines)
 
 
 def _generate_sentiment_summary(state: AnalysisState) -> Optional[str]:
     sentiment = state.get("sentiment_result")
     if not sentiment:
         return None
-    dist = sentiment["sentiment_distribution"]
-    dominant = sentiment["dominant_sentiment"]
-    return f"{dominant} {dist[dominant]*100:.0f}%, 분석 {sentiment['analyzed_count']}건"
+
+    dist = sentiment.get("sentiment_distribution", {})
+    dominant = sentiment.get("dominant_sentiment", "unknown")
+    confidence = sentiment.get("confidence", 0.0)
+    analyzed_count = sentiment.get("analyzed_count", 0)
+    sentiment_shift = sentiment.get("sentiment_shift", "stable")
+
+    dominant_pct = dist.get(dominant, 0) * 100
+
+    label_map = {
+        "support": "응원/지지",
+        "excitement": "흥분/기대",
+        "meme": "밈/유머",
+        "concern": "우려",
+        "criticism": "비판",
+        "anger": "분노",
+        "disappointment": "실망",
+        "fanwar": "팬워",
+        "neutral": "중립",
+    }
+    shift_map = {
+        "worsening": "부정 방향으로 변화 중",
+        "improving": "긍정 방향으로 개선 중",
+        "stable": "안정적",
+    }
+
+    lines = [
+        f"주요 반응: *{label_map.get(dominant, dominant)}* ({dominant_pct:.0f}%) — {analyzed_count:,}건 분석"
+    ]
+
+    # 상위 3개 감정 분포 표시
+    top_sentiments = sorted(
+        [(k, v) for k, v in dist.items() if v > 0.05],
+        key=lambda x: x[1],
+        reverse=True
+    )[:3]
+    if top_sentiments:
+        dist_parts = [f"{label_map.get(k, k)} {v*100:.0f}%" for k, v in top_sentiments]
+        lines.append("분포: " + " | ".join(dist_parts))
+
+    shift_label = shift_map.get(sentiment_shift, sentiment_shift)
+    # 신뢰도 60% 이상일 때만 표시
+    if confidence >= 0.6:
+        lines.append(f"트렌드: {shift_label} | 신뢰도: {confidence*100:.0f}%")
+    else:
+        lines.append(f"트렌드: {shift_label}")
+
+    return "\n".join(lines)
 
 
 def _generate_legal_summary(state: AnalysisState) -> str:
@@ -931,8 +1040,31 @@ def _generate_opportunity_summary(state: AnalysisState) -> Optional[str]:
     spike = state.get("spike_analysis") or {}
     if spike.get("spike_nature") != "positive":
         return None
+
     playbook = state.get("playbook") or {}
     opportunities = playbook.get("key_opportunities", [])
-    if not opportunities:
+    amplification = state.get("amplification_summary") or {}
+    causality = state.get("causality_result") or {}
+
+    if not opportunities and not amplification:
         return None
-    return ", ".join(opportunities[:2])
+
+    lines = []
+
+    if opportunities:
+        opp_text = " / ".join(opportunities[:3])
+        lines.append(f"기회 요인: {opp_text}")
+
+    hub_accounts = amplification.get("hub_accounts") or causality.get("hub_accounts") or []
+    if hub_accounts:
+        lines.append(f"활용 가능한 허브 계정: {len(hub_accounts)}개 (확산 거점)")
+
+    platforms = amplification.get("top_platforms", [])
+    if platforms:
+        lines.append(f"핵심 플랫폼: {', '.join(platforms[:3])}")
+
+    rep_msgs = amplification.get("representative_messages", [])
+    if rep_msgs:
+        lines.append(f"대표 팬 반응 {len(rep_msgs)}건 — 공식 채널 재확산 검토 권장")
+
+    return "\n".join(lines) if lines else None

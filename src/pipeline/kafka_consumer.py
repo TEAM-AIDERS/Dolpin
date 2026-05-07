@@ -3,8 +3,9 @@ import concurrent.futures
 import json
 import logging
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Callable, Dict, List
 
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from dotenv import load_dotenv
@@ -13,6 +14,9 @@ from src.schemas.kafka_schema import KafkaMessage
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+# 같은 키워드의 메시지를 묶어서 처리하기 위한 버퍼 윈도우 (초)
+BUFFER_WINDOW_SECONDS = float(os.getenv("BUFFER_WINDOW_SECONDS", "15"))
 
 
 class KafkaConsumer:
@@ -39,6 +43,10 @@ class KafkaConsumer:
         self._graph = None  # compile_workflow lazy init
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
+        # 키워드별 메시지 버퍼
+        self._buffer: Dict[str, List[KafkaMessage]] = defaultdict(list)
+        self._buffer_opened_at: Dict[str, float] = {}  # 키워드별 버퍼 최초 수신 시각
+
     def _get_graph(self):
         """워크플로우 그래프 싱글톤 (최초 호출 시 한 번만 컴파일)"""
         if self._graph is None:
@@ -47,19 +55,11 @@ class KafkaConsumer:
             logger.info("LangGraph 워크플로우 컴파일 완료")
         return self._graph
 
-    def run_pipeline(self, msg: KafkaMessage) -> dict:
-        """
-        KafkaMessage → AnalysisState 변환 후 LangGraph 워크플로우 실행
+    def run_pipeline_batch(self, msgs: List[KafkaMessage]) -> dict:
+        """여러 KafkaMessage를 하나의 SpikeEvent로 묶어 파이프라인 실행"""
+        from src.pipeline.transformer import kafka_messages_to_state
 
-        Args:
-            msg: Kafka에서 수신한 검증된 메시지
-
-        Returns:
-            완료된 AnalysisState (executive_brief 포함)
-        """
-        from src.pipeline.transformer import kafka_message_to_state
-
-        state = kafka_message_to_state(msg)
+        state = kafka_messages_to_state(msgs)
         graph = self._get_graph()
 
         def _invoke():
@@ -78,14 +78,36 @@ class KafkaConsumer:
             self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             raise
 
+    def _flush_buffer(self, keyword: str, callback: Callable[[List[KafkaMessage]], None]):
+        """키워드 버퍼를 플러시하고 콜백 호출"""
+        msgs = self._buffer.pop(keyword, [])
+        self._buffer_opened_at.pop(keyword, None)
+        if msgs:
+            logger.info(f"버퍼 플러시: [{keyword}] {len(msgs)}건 묶음 분석")
+            callback(msgs)
+
+    def _flush_expired_buffers(self, callback: Callable[[List[KafkaMessage]], None]):
+        """윈도우가 만료된 키워드 버퍼 자동 플러시"""
+        import time
+        now = time.monotonic()
+        expired = [
+            kw for kw, opened in self._buffer_opened_at.items()
+            if now - opened >= BUFFER_WINDOW_SECONDS
+        ]
+        for kw in expired:
+            self._flush_buffer(kw, callback)
+
     # 메시지 소비하고 콜백으로 넘기는 메서드
-    def consume(self, callback: Callable[[KafkaMessage], None]):
+    def consume(self, callback: Callable[[List[KafkaMessage]], None]):
+        import time
         try:
             self.consumer.subscribe([self.topic])
-            logger.info(f"Consumer 시작 (Mode: {os.getenv('MODE')})")
+            logger.info(f"Consumer 시작 (Mode: {os.getenv('MODE')}, 버퍼 윈도우: {BUFFER_WINDOW_SECONDS}초)")
 
             while True:
-                # 메시지 기다림, 없으면 루프
+                # 만료된 버퍼 주기적으로 플러시
+                self._flush_expired_buffers(callback)
+
                 msg = self.consumer.poll(1.0)
                 if msg is None:
                     continue
@@ -99,16 +121,21 @@ class KafkaConsumer:
 
                 commit_eligible = False
                 try:
-                    # 데이터 검증
                     data_dict = json.loads(raw_data)
                     validated_msg = KafkaMessage.model_validate(data_dict)
+                    keyword = validated_msg.keyword
 
-                    trace_id = getattr(validated_msg, 'message_id', 'no-id')
-                    logger.info(f"메시지 수신 성공 [{validated_msg.source}] ID: {trace_id}")
+                    logger.info(f"메시지 수신 [{validated_msg.source}] 키워드: {keyword}")
 
-                    # 외부 함수로 메시지 넘김
-                    callback(validated_msg)
-                    commit_eligible = True  # 정상 처리 완료
+                    # 버퍼에 추가
+                    if keyword not in self._buffer_opened_at:
+                        self._buffer_opened_at[keyword] = time.monotonic()
+                    self._buffer[keyword].append(validated_msg)
+                    commit_eligible = True  # 버퍼에 정상 추가됨
+
+                    # trend 메시지 수신 시 즉시 플러시 (집계 데이터라 바로 처리)
+                    if validated_msg.type == "trend":
+                        self._flush_buffer(keyword, callback)
 
                 except Exception as e:
                     # 검증/파이프라인 실패 시 DLQ 보관
@@ -147,30 +174,22 @@ if __name__ == "__main__":
 
     consumer = KafkaConsumer()
 
-    def process_data(msg: KafkaMessage):
-        logger.info(f"--- 분석 시작 --- 키워드: {msg.keyword}")
+    def process_data(msgs: List[KafkaMessage]):
+        keyword = msgs[0].keyword
+        logger.info(f"--- 분석 시작 --- 키워드: {keyword} ({len(msgs)}건)")
         try:
-            result = consumer.run_pipeline(msg)
+            result = consumer.run_pipeline_batch(msgs)
             skipped = result.get("skipped", False)
             if skipped:
-                logger.info(f"⏭️  스킵됨: [{msg.keyword}] reason={result.get('skip_reason')}")
-                logger.info(f"spike_summary={result.get('spike_summary')}")
-                logger.info(f"executive_brief={result.get('executive_brief')}")
+                logger.info(f"⏭️  스킵됨: [{keyword}] reason={result.get('skip_reason')}")
             else:
                 from src.pipeline.result_store import save_result
-                from src.integrations.slack.formatter import format_to_slack
-                from src.integrations.slack.sender import send_to_slack
 
                 save_result(result)
 
-                slack_message = format_to_slack(result)
-                sent = send_to_slack(slack_message)
-                
                 brief = (result.get("executive_brief") or {}).get("summary", "N/A")
-                logger.info(f"✅ 분석 완료: [{msg.keyword}] {brief}")
-                logger.info(f"📨 Slack 전송 결과: {sent}")
+                logger.info(f"✅ 분석 완료: [{keyword}] {brief}")
         except Exception as e:
-            logger.error(f"❌ 파이프라인 실패: [{msg.keyword}] {e}")
-            raise  # consume()의 finally 블록이 DLQ 저장 + 커밋을 처리하도록 예외 전파
+            logger.error(f"❌ 파이프라인 실패: [{keyword}] {e}")
 
     consumer.consume(callback=process_data)

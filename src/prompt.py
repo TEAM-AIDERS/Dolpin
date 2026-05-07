@@ -95,6 +95,14 @@ def build_playbook_enhancement_prompt(
     
     # 프롬프트 조립
     prompt = f"""당신은 K-POP 팬덤 이슈 관리 및 PR 전략을 전문으로 하는 위기 관리 AI 어드바이저입니다.
+K-POP 팬덤 문화에 대한 깊은 이해를 바탕으로 실무에서 실제로 효과 있는 전략을 제시합니다.
+
+[K-POP 팬덤 문화 핵심 인사이트 — 반드시 반영]
+- 팬 아트·팬 콘텐츠에 아티스트가 직접 피드백하거나 소개하는 것은 절대 금지 — 다른 팬들의 질투와 역반응을 유발함
+- 긍정 바이럴 확산은 팬들이 자발 참여할 수 있는 트렌디한 챌린지 기획·촬영(릴스, 숏폼 포맷)이 가장 효과적
+- 허브 계정 대응은 단순 협력·출연 섭외가 아니라, 팬들이 오랫동안 원해온 자체 컨텐츠(멤버 자체 예능, 브이로그, 비하인드 시리즈 등)를 직접 제작하여 허브 계정이 자연스럽게 언급·확산하도록 유도하는 방식
+- 공식 소통은 장문 입장문보다 아티스트 본인의 짧고 진정성 있는 메시지(위버스·SNS 직접 소통)가 팬심에 더 효과적
+- 팬들이 가장 원하는 것: 아티스트의 직접 소통, 비하인드 콘텐츠, 멤버들이 직접 만드는 자체 제작 예능/브이로그
 
 [현재 상황]
 - 아티스트: {keyword}
@@ -112,8 +120,8 @@ def build_playbook_enhancement_prompt(
 
 1. **구체적 실행 방안** (2-3문장)
    - 무엇을, 어떻게, 누구를 대상으로 할 것인가
-   - 실무적으로 실행 가능한 구체적인 방법 제시
-   
+   - 위 K-POP 팬덤 인사이트를 반영한 실무적으로 실행 가능한 구체적인 방법 제시
+
 2. **예상 효과 및 근거** (2-3문장)
    - 왜 이 액션이 필요한가
    - 어떤 효과를 기대하는가
@@ -218,7 +226,109 @@ def parse_playbook_enhancement_response(
 
 
 # ============================================================
-# 추가될 프롬프트 
+# ExecBrief LLM 내러티브 생성 프롬프트
+# ============================================================
+
+def build_exec_brief_prompt(state: dict) -> str:
+    """
+    분석 결과 전체를 받아 Slack 리포트용 내러티브 요약을 생성하는 프롬프트.
+    spike_summary / sentiment_summary / opportunity_summary를 LLM이 자연어로 작성.
+    """
+    spike_event = state.get("spike_event") or {}
+    spike       = state.get("spike_analysis") or {}
+    sentiment   = state.get("sentiment_result") or {}
+    causality   = state.get("causality_result") or {}
+    playbook    = state.get("playbook") or {}
+
+    keyword       = spike_event.get("keyword", "미상")
+    spike_rate    = spike.get("spike_rate", 0)
+    spike_nature  = spike.get("spike_nature", "neutral")
+    spike_type    = spike.get("spike_type", "organic")
+    situation     = playbook.get("situation_type", "monitoring")
+
+    dominant      = sentiment.get("dominant_sentiment", "neutral")
+    dist          = sentiment.get("sentiment_distribution") or {}
+    analyzed      = sentiment.get("analyzed_count", 0)
+    confidence    = sentiment.get("confidence", 0)
+
+    # 대표 메시지 샘플 (최대 3건)
+    rep_msgs = sentiment.get("representative_messages") or {}
+    sample_lines = []
+    for msgs in rep_msgs.values():
+        for msg in (msgs or [])[:2]:
+            if msg:
+                sample_lines.append(f'- "{str(msg).strip()[:100]}"')
+            if len(sample_lines) >= 3:
+                break
+        if len(sample_lines) >= 3:
+            break
+    sample_text = "\n".join(sample_lines) if sample_lines else "샘플 없음"
+
+    # 확산 경로
+    trigger  = causality.get("trigger_source", "알 수 없음")
+    cascade  = causality.get("cascade_pattern", "알 수 없음")
+    hub_cnt  = len(causality.get("hub_accounts") or [])
+
+    situation_map = {
+        "crisis":      "부정 이슈 — 팬들의 비판·실망이 확산 중인 위기 상황",
+        "opportunity": "긍정 이슈 — 팬덤 확장 기회가 있는 바이럴 상황",
+        "monitoring":  "일반 모니터링 — 특별한 대응이 필요 없는 안정적 상황",
+    }
+    situation_desc = situation_map.get(situation, situation)
+
+    prompt = f"""당신은 K-POP 팬덤 이슈 관리를 전문으로 하는 PR 전략 AI입니다.
+아래 분석 데이터를 바탕으로 Slack 리포트에 들어갈 자연어 요약 3가지를 작성하세요.
+
+[분석 데이터]
+- 아티스트/키워드: {keyword}
+- 급등 규모: {spike_rate}배 ({spike_type} 유형, {spike_nature} 성격)
+- 상황 유형: {situation_desc}
+- 주요 팬 반응: {dominant} ({dist.get(dominant, 0)*100:.0f}%), 총 {analyzed}건 분석, 신뢰도 {confidence*100:.0f}%
+- 감정 분포: {", ".join(f"{k} {v*100:.0f}%" for k, v in dist.items() if v > 0.05)}
+- 확산 트리거: {trigger} / 패턴: {cascade} / 허브 계정: {hub_cnt}개
+- 팬 반응 샘플:
+{sample_text}
+
+[요청]
+아래 3가지를 각각 2~3문장의 한국어 존댓말로 작성하세요.
+데이터 수치를 자연스럽게 녹여서 실무자가 바로 이해할 수 있게 작성하세요.
+
+1. **현재 상황 요약** — 무슨 일이 일어나고 있는지, 얼마나 빠르게 확산되는지
+2. **팬 반응 요약** — 팬들이 어떤 감정으로 무슨 이야기를 하는지
+3. **확산 기회/위험** — 지금 상황에서 주목해야 할 점 (긍정이면 기회, 부정이면 위험)
+
+[출력 형식] 반드시 아래 마커를 지켜 출력하세요.
+---SPIKE_START---
+(현재 상황 요약 2~3문장)
+---SPIKE_END---
+---SENTIMENT_START---
+(팬 반응 요약 2~3문장)
+---SENTIMENT_END---
+---OPPORTUNITY_START---
+(확산 기회/위험 2~3문장)
+---OPPORTUNITY_END---
+"""
+    return prompt
+
+
+def parse_exec_brief_response(response_text: str) -> dict:
+    """ExecBrief LLM 응답 파싱 → spike/sentiment/opportunity 텍스트 추출"""
+    def _extract(text: str, start: str, end: str) -> str:
+        s = text.find(start)
+        e = text.find(end)
+        if s == -1 or e == -1:
+            return ""
+        return text[s + len(start):e].strip()
+
+    return {
+        "spike_summary":       _extract(response_text, "---SPIKE_START---",       "---SPIKE_END---"),
+        "sentiment_summary":   _extract(response_text, "---SENTIMENT_START---",   "---SENTIMENT_END---"),
+        "opportunity_summary": _extract(response_text, "---OPPORTUNITY_START---", "---OPPORTUNITY_END---"),
+    }
+
+
+# ============================================================
+# 추가될 프롬프트 (미구현)
 # ============================================================
 
 # def build_sentiment_prompt(text: str) -> str:
