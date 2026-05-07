@@ -298,7 +298,8 @@ export class TwitterService {
         "tweet.fields": ["author_id", "public_metrics", "created_at", "lang"],
         "expansions": ["author_id"]
       });
-      return result.data.data;
+      // result.data가 undefined이면(검색 결과 없음) 빈 배열 반환
+      return result.data?.data ?? [];
     } catch (error: unknown) {
       // @ts-ignore
       return error;

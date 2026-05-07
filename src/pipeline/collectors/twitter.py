@@ -17,16 +17,22 @@ class TwitterCollector:
         # MCP 서버 경로 설정 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         server_path = os.path.normpath(os.path.join(current_dir, "../../../src/server/x-v2-server/dist/index.js"))
-        self.server_params = StdioServerParameters(
-            command="node",
-            args=[server_path],
-            env={
+        # os.environ을 기반으로 시스템 환경변수(PATH 등)를 상속하고 Twitter 키를 덮어씀
+        # - os.environ 없이 키만 넘기면 자식 프로세스(node)가 PATH를 못 찾아 실행 실패
+        # - os.getenv()가 None이면 str(None)="None"이 전달되므로 None 값은 필터링
+        twitter_env = {
+            k: v for k, v in {
                 "TWITTER_API_KEY": os.getenv("TWITTER_API_KEY"),
                 "TWITTER_API_KEY_SECRET": os.getenv("TWITTER_API_KEY_SECRET"),
                 "TWITTER_ACCESS_TOKEN": os.getenv("TWITTER_ACCESS_TOKEN"),
                 "TWITTER_ACCESS_TOKEN_SECRET": os.getenv("TWITTER_ACCESS_TOKEN_SECRET"),
                 "TWITTER_BEARER_TOKEN": os.getenv("TWITTER_BEARER_TOKEN"),
-            }
+            }.items() if v is not None
+        }
+        self.server_params = StdioServerParameters(
+            command="node",
+            args=[server_path],
+            env={**os.environ, **twitter_env},
         )
     def fetch(self, keyword: str) -> list:
         try:
