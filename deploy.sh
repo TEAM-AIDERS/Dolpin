@@ -6,9 +6,9 @@ set -euo pipefail
 # ============================================================
 # 설정
 # ============================================================
-PROJECT_ID="33643663123"       # GCP 프로젝트 ID
+PROJECT_ID="dolpin-aiders"       # GCP 프로젝트 ID
 REGION="asia-northeast3"               # 서울 리전 (Kafka 서버와 동일)
-GCS_BUCKET="dolpin-aiders"     # GCS 버킷 이름 (결과 저장용)
+GCS_BUCKET="dolpin-aiders-results"     # GCS 버킷 이름 (결과 저장용)
 
 REPO="dolpin"
 REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}"
