@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git/
+.github/
+*.egg-info/
+dist/
+build/
+tests/
+.pytest_cache/
+*.log
+*.jsonl
+ai_pipeline_diagram.png
+generate_diagram.py

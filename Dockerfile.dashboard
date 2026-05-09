@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# PyTorch CPU-only 먼저 설치 (GPU 버전 대비 이미지 크기 ~3GB 절감)
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 대시보드 전용 패키지 (requirements.txt 미포함)
+RUN pip install --no-cache-dir streamlit plotly
+
+COPY . .
+
+EXPOSE 8080
+
+CMD ["streamlit", "run", "dashboard.py", \
+     "--server.port=8080", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true"]
