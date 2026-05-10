@@ -1,0 +1,26 @@
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m playwright install --with-deps chromium
+
+COPY src/server/x-v2-server/package*.json ./src/server/x-v2-server/
+WORKDIR /app/src/server/x-v2-server
+RUN npm ci
+
+COPY src/server/x-v2-server ./
+RUN npm run build
+
+WORKDIR /app
+COPY . .
+
+CMD ["python", "-m", "src.pipeline.collector"]
