@@ -43,8 +43,12 @@ gcloud services enable \
   --project="${PROJECT_ID}"
 
 echo "=== Build and push collector image ==="
-docker build -f Dockerfile.collector -t "${IMAGE_COLLECTOR}" .
-docker push "${IMAGE_COLLECTOR}"
+cp Dockerfile.collector Dockerfile
+cleanup() {
+  rm -f Dockerfile
+}
+trap cleanup EXIT
+gcloud builds submit . --tag="${IMAGE_COLLECTOR}" --project="${PROJECT_ID}"
 
 echo "=== Create or update Cloud Run job ==="
 if gcloud run jobs describe "${JOB_NAME}" \
