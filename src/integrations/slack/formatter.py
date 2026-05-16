@@ -1,14 +1,18 @@
 # src/integrations/slack/formatter.py
 
+from __future__ import annotations
+
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from urllib.parse import urlparse
 
-from src.dolpin_langgraph.state import AnalysisState
+if TYPE_CHECKING:
+    from src.dolpin_langgraph.state import AnalysisState
 
 MAX_SECTION_TEXT = 2900
-DEFAULT_ALLOWED_LINK_HOSTS = {"dashboard.example.com"}
+DEFAULT_DASHBOARD_URL = "https://dolpin-dashboard-33643663123.asia-northeast3.run.app"
+DEFAULT_ALLOWED_LINK_HOSTS = {"dolpin-dashboard-33643663123.asia-northeast3.run.app"}
 
 _SOURCE_LABEL = {
     "twitter":       "Twitter(X)",
@@ -239,6 +243,16 @@ def format_to_slack(state: AnalysisState) -> Dict[str, Any]:
 
     # ── 10. 액션 버튼 ────────────────────────────────────────
     trace_id = str(state.get("trace_id", "unknown"))[:8]
+    dashboard_url = _get_dashboard_url(state)
+
+    detail_button = {
+        "type": "button",
+        "text": {"type": "plain_text", "emoji": True, "text": "🔍 상세 분석 보기"},
+        "value": f"detail_{trace_id}",
+    }
+    if dashboard_url:
+        detail_button["url"] = dashboard_url
+
     blocks.append({
         "type": "actions",
         "elements": [
@@ -249,12 +263,7 @@ def format_to_slack(state: AnalysisState) -> Dict[str, Any]:
                 "value": f"confirm_{trace_id}",
                 "action_id": "action_confirm",
             },
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "emoji": True, "text": "🔍 상세 분석 보기"},
-                "value": f"detail_{trace_id}",
-                "action_id": "action_detail",
-            },
+            detail_button,
         ],
     })
 
@@ -479,6 +488,21 @@ def _translate_action_type(action_type: str) -> str:
         "prepare_communication": "팬 소통 준비",
     }
     return action_map.get(action_type, action_type)
+
+
+def _get_dashboard_url(state: Dict[str, Any]) -> Optional[str]:
+    """Slack 버튼에 표시할 대시보드 URL을 state 또는 환경 변수에서 가져옵니다."""
+    url = (
+        state.get("dashboard_url")
+        or state.get("executive_brief", {}).get("dashboard_url")
+        or os.getenv("DASHBOARD_URL")
+        or os.getenv("DOLPIN_DASHBOARD_URL")
+        or DEFAULT_DASHBOARD_URL
+    )
+    if not url:
+        return None
+    url = str(url).strip()
+    return url if url.startswith("https://") else None
 
 
 def _safe_link(url: Optional[str], label: str) -> str:
