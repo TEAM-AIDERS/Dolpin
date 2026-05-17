@@ -855,6 +855,13 @@ def exec_brief_node(state: AnalysisState) -> AnalysisState:
 
         _update_node_insight(state, "exec_brief", "generated")
 
+        try:
+            from src.pipeline.result_store import save_result
+            save_result(state)
+            logger.info("GCS 저장 완료 (Slack 전송 전)")
+        except Exception as e:
+            logger.warning(f"GCS 저장 실패 (Slack 전송은 계속 진행): {e}")
+
         bot_token = os.getenv("SLACK_BOT_TOKEN")
         channel_id = os.getenv("SLACK_CHANNEL_ID")
         if bot_token and channel_id:
