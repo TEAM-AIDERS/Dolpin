@@ -16,7 +16,8 @@ _BLOB_NAME = "dolpin/latest_result.json"
 
 
 def _bucket_name() -> Optional[str]:
-    return os.getenv("GCS_BUCKET_NAME")
+    name = os.getenv("GCS_BUCKET_NAME")
+    return name.strip() if name else None
 
 
 def save_result(result: dict) -> None:
