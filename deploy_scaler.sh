@@ -24,17 +24,20 @@ gcloud services enable \
   run.googleapis.com \
   cloudscheduler.googleapis.com \
   monitoring.googleapis.com \
+  cloudbuild.googleapis.com \
   --project="${PROJECT_ID}"
 
 # ============================================================
 # 2. 서비스 계정에 Cloud Run 관리 권한 부여
 #    (스케일러가 dolpin-consumer의 min-instances를 수정하므로 필요)
 # ============================================================
-echo "=== Grant Cloud Run Admin role to SA ==="
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/run.admin" \
-  --quiet
+echo "=== Grant required roles to SA ==="
+for ROLE in roles/run.admin roles/monitoring.viewer; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="${ROLE}" \
+    --quiet
+done
 
 # ============================================================
 # 3. 이미지 빌드 & 푸시 (Cloud Build)
