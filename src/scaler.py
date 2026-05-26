@@ -37,7 +37,13 @@ MAX_INSTANCES = 5
 
 
 def _get_max_score(monitoring_client: monitoring_v3.MetricServiceClient) -> float:
-    """최근 LOOKBACK_SECONDS 동안의 actionability_score 최댓값 반환."""
+    """최근 LOOKBACK_SECONDS 동안의 actionability_score 최댓값 반환.
+
+    메트릭이 아직 한 번도 전송된 적 없으면 GCP가 404를 반환하므로
+    해당 케이스는 데이터 없음(0.0)으로 처리한다.
+    """
+    from google.api_core.exceptions import NotFound
+
     now = time.time()
     interval = monitoring_v3.TimeInterval(
         {
@@ -45,19 +51,23 @@ def _get_max_score(monitoring_client: monitoring_v3.MetricServiceClient) -> floa
             "start_time": {"seconds": int(now - LOOKBACK_SECONDS)},
         }
     )
-    results = monitoring_client.list_time_series(
-        request={
-            "name": f"projects/{PROJECT_ID}",
-            "filter": f'metric.type="{METRIC_TYPE}"',
-            "interval": interval,
-            "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-        }
-    )
-    max_score = 0.0
-    for ts in results:
-        for point in ts.points:
-            max_score = max(max_score, point.value.double_value)
-    return round(max_score, 4)
+    try:
+        results = monitoring_client.list_time_series(
+            request={
+                "name": f"projects/{PROJECT_ID}",
+                "filter": f'metric.type="{METRIC_TYPE}"',
+                "interval": interval,
+                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            }
+        )
+        max_score = 0.0
+        for ts in results:
+            for point in ts.points:
+                max_score = max(max_score, point.value.double_value)
+        return round(max_score, 4)
+    except NotFound:
+        logger.info("메트릭 없음 (아직 전송된 데이터 없음) → score=0.0으로 처리")
+        return 0.0
 
 
 def _target_min_instances(score: float) -> int:
