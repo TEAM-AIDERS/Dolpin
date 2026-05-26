@@ -24,7 +24,9 @@ slack_sdk>=3.19.0
 mcp>=0.5.0
 playwright>=1.40.0
 pytrends>=4.9.2
-google-cloud-storage  
+urllib3<2                 # pytrends가 urllib3 2.x의 method_whitelist 제거에 미대응
+google-cloud-storage
+google-cloud-monitoring
 
 # Data Streaming
-confluent-kafka>=2.0.0  
+confluent-kafka>=2.0.0

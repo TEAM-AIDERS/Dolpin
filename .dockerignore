@@ -8,9 +8,11 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+node_modules/
 tests/
 .pytest_cache/
 *.log
 *.jsonl
 ai_pipeline_diagram.png
 generate_diagram.py
+load_test/
