@@ -1,0 +1,66 @@
+term,normalized_form,type,sentiment_label,trigger_type,action_strength,fandom_scope,target_entity,polarity,intensity,risk_flag,example_text,usage_mode,notes,created_at,updated_at
+불매,불매,boycott_action,Boycott,action,collective,fandom,agency,negative,high,alert,이번 활동은 불매할게,literal,명시적 소비 중단,2026-01-18,2026-01-18
+이제 안 본다,이제 안 본다,boycott_action,Boycott,action,declaration,fandom,artist,negative,high,alert,이제 안 본다 진짜,literal,시청/소비 중단 선언,2026-01-18,2026-01-18
+탈빠,탈덕,boycott_action,Boycott,action,declaration,fandom,artist,negative,high,alert,이번 일로 탈빠함,ambiguous,팬 활동 중단 상태 선언,2026-01-18,2026-01-18
+덕통사고,덕통사고,context_marker,Context,emotion,none,global,self,positive,mid,none,덕통사고 당함,literal,유입 맥락,2026-01-18,2026-01-18
+입덕,입덕,context_marker,Context,action,declaration,global,self,positive,mid,none,이번 무대로 입덕함,literal,유입 단계,2026-01-18,2026-01-18
+타팬인데,타팬,context_marker,Context,context,none,global,unknown,neutral,low,none,타팬인데 무대는 잘 봤어요,literal,발화자 위치,2026-01-18,2026-01-18
+현생,현생,context_marker,Context,context,none,fandom,self,neutral,low,none,현생 때문에 요즘 잘 못 봄,literal,활동 맥락,2026-01-18,2026-01-18
+먹금,먹이금지,context_marker,Context,action,none,fandom,fandom,neutral,mid,watch,이 건은 먹금하자,literal,이슈 확산 차단 의도,2026-01-18,2026-01-18
+돌석,은석,fandom_slang,Nickname,context,none,fandom,artist,positive,low,none,돌석 오늘 컨셉 찰떡,literal,애칭,2026-01-18,2026-01-18
+돌프,최애가 은석,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,돌프 오늘도 운다,literal,최애 표기,2026-01-18,2026-01-18
+땡프,최애가 재희,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,땡프 아닌데도 저장함,literal,최애 표기,2026-01-18,2026-01-18
+또리,소희,fandom_slang,Nickname,context,none,fandom,artist,positive,low,none,또리 웃는 거 봤어?,literal,애칭,2026-01-18,2026-01-18
+또프,최애가 소희,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,또프 오늘 무대 레전드,literal,최애 표기,2026-01-18,2026-01-18
+료프,최애가 료,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,내가 료프가 되게 해준 영상,literal,최애 표기,2026-01-18,2026-01-18
+삔프,최애가 원빈,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,삔프는 그냥 행복함,literal,최애 표기,2026-01-18,2026-01-18
+샄료,사쿠야+료,fandom_slang,Pairing,emotion,none,fandom,artist,positive,mid,none,샄료 케미 미쳤다,literal,멤버 조합,2026-01-18,2026-01-18
+샄프,최애가 사쿠야,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,누가봐도 샄프,literal,최애 표기,2026-01-18,2026-01-18
+쇼따로,쇼타로,fandom_slang,Nickname,context,none,fandom,artist,positive,low,none,쇼따로 오늘 춤선 미쳤다,literal,애칭,2026-01-18,2026-01-18
+쇼프,최애가 쇼타로,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,쇼프는 오늘도 만족,literal,최애 표기,2026-01-18,2026-01-18
+숀프,최애가 시온,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,나 숀프야,literal,최애 표기,2026-01-18,2026-01-18
+숑프,최애가 성찬,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,나 숑프라서 오늘 무대 더 좋았음,literal,최애 표기,2026-01-18,2026-01-18
+숕프,최애가 쇼타로,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,숕프 심장 아픔,literal,최애 표기,2026-01-18,2026-01-18
+스엠,sm,fandom_slang,Entity,context,none,fandom,agency,neutral,low,none,스엠 일 진짜 못한다,ambiguous,회사 지칭,2026-01-18,2026-01-18
+에스엠,sm,fandom_slang,Entity,context,none,fandom,agency,neutral,low,none,에스엠 일 진짜 못한다,ambiguous,회사 지칭,2026-01-18,2026-01-18
+위즈니,엔시티위시 팬덤명,fandom_slang,Identity,context,none,fandom,fandom,neutral,low,none,위즈니 모여라,literal,공식 팬덤명,2026-01-18,2026-01-18
+윳댕,유우시+재희,fandom_slang,Pairing,emotion,none,fandom,artist,positive,mid,none,윳댕 조합 최고,literal,멤버 조합,2026-01-18,2026-01-18
+윳프,최애가 유우시,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,윳프라서 뿌듯,literal,최애 표기,2026-01-18,2026-01-18
+쿨프,최애가 리쿠,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,쿨프 오늘도 행복,literal,최애 표기,2026-01-18,2026-01-18
+톤프,최애가 앤톤,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,톤프라서 직캠 돌려봄,literal,최애 표기 변형,2026-01-18,2026-01-18
+칼프,최애가 카리나,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,나 칼프임,literal,카리나 최애 지칭,2026-01-18,2026-01-18
+닝프,최애가 닝닝,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,닝프라서 이 파트 좋았음,literal,닝닝 최애 지칭,2026-01-18,2026-01-18
+젤프,최애가 지젤,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,젤프들 오늘 떡상,literal,지젤 최애 지칭,2026-01-18,2026-01-18
+쩡프,최애가 윈터,fandom_slang,Bias,emotion,none,fandom,artist,positive,mid,none,쩡프는 오늘 행복함,literal,윈터 최애 지칭,2026-01-18,2026-01-18
+팬들,팬들,fanwar_target,Fanwar,target,none,global,fandom,negative,high,watch,사귀는 건 문제가 안되는데 팬들 상대로 기만하니까 팬들이 떠나가는거지 ㅋㅋㅋㅋ 사귀는거에만 꽂혀서 이때다 싶어서 달려드는 한남한녀들은 진짜 개패고 싶네 ㅋㅋ,ambiguous,"팬덤 내부/외부 구분 및 정통성 주장 표현(강한 표현 포함) & 변형: 진짜 팬들, 찐팬들, 팬들한테",2026-01-18,2026-01-18
+ㄱㄹㄹㄱㄹㅅㅇ,그러를그러세요,irony_cue,Irony,sarcasm,none,global,unknown,negative,low,watch,ㄱㄹㄹㄱㄹㅅㅇ,ambiguous,초성 밈,2026-01-18,2026-01-18
+그러를그러세요,그러시든가,irony_cue,Irony,sarcasm,none,global,unknown,negative,low,watch,아 그러를그러세요,ambiguous,냉소,2026-01-18,2026-01-18
+대단하다 진짜,대단하다 진짜,irony_cue,Irony,sarcasm,none,global,unknown,negative,low,watch,와 대단하다 진짜,ambiguous,문맥 의존,2026-01-18,2026-01-18
+또 시작이네,또 시작이네,irony_cue,Irony,sarcasm,none,global,system,negative,low,watch,아 또 시작이네 ㅋㅋ,ambiguous,비꼼,2026-01-18,2026-01-18
+참 잘한다,참 잘한다,irony_cue,Irony,sarcasm,none,global,unknown,negative,low,watch,참 잘한다 진짜,ambiguous,단독 판단 금지,2026-01-18,2026-01-18
+또 시작이네 ㅋㅋ,또 시작,meme_negative,Meme,sarcasm,,global,,negative,low,watch,또 시작이네 ㅋㅋㅋㅋ,meme,냉소적 반복 드립,2026-01-18,2026-01-18
+레게노,레전드,meme_positive,Meme,emotion,,global,,positive,mid,none,이 무대 레게노다 ㅋㅋ,meme,팬덤 애정 밈,2026-01-18,2026-01-18
+덕계못,덕후는 계를 못탄다,meme_slang,Meme,context,none,fandom,self,neutral,low,none,유우시 덕계못 사건,meme,자조,2026-01-18,2026-01-18
+숨참,숨참,meme_slang,Meme,emotion,none,global,artist,positive,mid,none,너무 잘생겨서 숨참음,meme,기대,2026-01-18,2026-01-18
+오우예씨몬,오우예씨몬,meme_slang,Meme,emotion,none,fandom,artist,positive,mid,none,카리나 버블 오우예씨몬,meme,긍정,2026-01-18,2026-01-18
+입틀막,입틀막,meme_slang,Meme,emotion,none,global,artist,positive,high,none,입틀막이다 진짜,meme,과몰입,2026-01-18,2026-01-18
+전설각,전설,meme_slang,Meme,emotion,none,global,artist,positive,high,none,이 무대 전설각,meme,과장,2026-01-18,2026-01-18
+짤각,짤각,meme_slang,Meme,emotion,none,global,artist,positive,mid,none,이 장면 완전 짤각이다,meme,이미지 맥락,2026-01-18,2026-01-18
+ㄱㄷㅇ,재희,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㄱㄷㅇ 오늘 컨디션 좋아 보임,literal,검색 회피,2026-01-18,2026-01-18
+ㄹㅋ,리쿠,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㄹㅋ 오늘 폼 미쳤다,literal,검색 회피,2026-01-18,2026-01-18
+ㅂㅇㅂ,원빈,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅂㅇㅂ 오늘 표정 미쳤다,literal,검색 회피,2026-01-18,2026-01-18
+ㅅㅇㅅ,은석,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅅㅇㅅ 오늘 스타일 미쳤다,literal,검색 회피,2026-01-18,2026-01-18
+ㅅㅋㅇ,사쿠야,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅅㅋㅇ 직캠 봤어?,literal,검색 회피,2026-01-18,2026-01-18
+ㅇㅂ,원빈,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅂ 직캠 봤어?,literal,검색 회피,2026-01-18,2026-01-18
+ㅇㅇㅅ,유우시,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅇㅅ 오늘도 레전드,literal,검색 회피,2026-01-18,2026-01-18
+ㅈㅅㅊ,성찬,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅈㅅㅊ 무대 장악력 장난 아님,literal,검색 회피,2026-01-18,2026-01-18
+ㅇㅅㅍ,에스파,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅅㅍ 컴백 언제야,literal,검색 회피용 축약,2026-01-18,2026-01-18
+ㄹㅇㅈ,라이즈,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㄹㅇㅈ 이번 무대 좋더라,literal,검색 회피용 축약,2026-01-18,2026-01-18
+ㅋㄹㄴ,카리나,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅋㄹㄴ 오늘 스타일 미쳤다,literal,개인 멤버 검색 회피,2026-01-18,2026-01-18
+ㅇㅅㅍ ㄴㄴ,에스파 닝닝,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅅㅍ ㄴㄴ 헤메 진짜 예쁨,literal,그룹+멤버 검색 회피,2026-01-18,2026-01-18
+ㅇㅅㅍ ㅇㅌ,에스파 윈터,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅅㅍ ㅇㅌ 음색 미쳤다,literal,그룹+멤버 검색 회피,2026-01-18,2026-01-18
+ㅇㅅㅌㅇㅅ,엔시티 위시,search_evasion,Reference,context,none,fandom,artist,neutral,low,none,ㅇㅅㅌㅇㅅ 데뷔 무대 봤어,literal,검색 회피 축약,2026-01-18,2026-01-18
+계속 응원,응원,support_action,Support,action,declaration,global,artist,positive,mid,none,아쉽긴 해도 계속 응원할게,literal,지속적 지지 의사 표현,2026-01-18,2026-01-18
+그래도 산다,그래도 산다,support_action,Support,action,declaration,global,artist,positive,mid,none,그래도 앨범은 산다,literal,부정 평가 이후에도 소비 유지,2026-01-18,2026-01-18
+시비,시비,fanwar_action,Fanwar,action,collective,fandom,fandom,negative,mid,watch,쟤네 팬덤 또 시비 거네 수준 보소,literal,팬덤 간 시비·분쟁을 나타내는 표현,2026-01-20,2026-01-20
+팬덤 싸움,팬덤 싸움,fanwar_action,Fanwar,action,collective,fandom,fandom,negative,high,alert,또 팬덤싸움 시작이네 진짜 피곤하다,literal,팬덤 간 직접적 분쟁·대립 상황,2026-01-20,2026-01-20
