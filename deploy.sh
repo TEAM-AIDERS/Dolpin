@@ -25,6 +25,7 @@ gcloud services enable \
   secretmanager.googleapis.com \
   storage.googleapis.com \
   cloudbuild.googleapis.com \
+  monitoring.googleapis.com \
   --project="${PROJECT_ID}"
 
 # ============================================================
@@ -146,7 +147,7 @@ gcloud run deploy dolpin-dashboard \
   --project="${PROJECT_ID}" \
   --service-account="${SA_EMAIL}" \
   --set-secrets="${DASHBOARD_SECRETS}" \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID}" \
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID}" \
   --memory=2Gi \
   --cpu=1 \
   --port=8080 \
@@ -163,12 +164,12 @@ gcloud run deploy dolpin-consumer \
   --project="${PROJECT_ID}" \
   --service-account="${SA_EMAIL}" \
   --set-secrets="${CONSUMER_SECRETS}" \
-  --set-env-vars="GCP_PROJECT=${PROJECT_ID}" \
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID}" \
   --memory=4Gi \
   --cpu=2 \
   --port=8080 \
   --min-instances=1 \
-  --max-instances=1 \
+  --max-instances=5 \
   --no-allow-unauthenticated \
   --quiet
 
